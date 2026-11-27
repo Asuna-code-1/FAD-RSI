@@ -88,6 +88,8 @@ def ppo_loss(config: ActorConfig, model_output, data: TensorDict, dp_group=None)
         # Both halves use the same pre-update margin, including across ranks.
         lp = no_padding_2_padding(model_output["response_token_log_probs"], data)
         mask = data["response_mask"].bool()
+        positions = torch.arange(mask.size(-1), device=mask.device)
+        mask = mask & (positions >= data["fad_dpo_start"][:, None])
         mean = lp.masked_fill(~mask, 0).sum(-1) / mask.sum(-1).clamp_min(1)
         fad_term = (data["fad_slope"] * (mean - data["fad_old_mean"]) + data["fad_value"]).sum() * data["dp_size"]
         fad_weight = tu.get_non_tensor_data(data, "fad_opd_weight", 1.)

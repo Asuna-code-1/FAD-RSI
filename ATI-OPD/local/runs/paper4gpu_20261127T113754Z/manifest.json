@@ -35,18 +35,19 @@
       "output_dir": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_20261127T113754Z/nemotron15-opd",
       "session": "ati-nemotron15-opd-20261127T113754Z",
       "short_tmp_dir": "/data/fd/donghaosen/ati-opd/tmp/1137540",
-      "state": "initializing",
+      "state": "training",
       "logging_backend": "swanlab,wandb",
       "started_at_utc": "2026-11-27T11:40:28.597192+00:00",
       "console_log": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_20261127T113754Z/nemotron15-opd/logs/train.log",
       "peak_mib": [
-        81755.6,
-        81793.6,
-        87307.1,
-        87307.1
+        83559.6,
+        83371.6,
+        95913.0,
+        96097.0
       ],
-      "swanlab_url": "https://swanlab.cn/@Dhs2004/ati-opd/runs/u2t9t42i"
+      "swanlab_url": "https://swanlab.cn/@Dhs2004/ati-opd/runs/u2t9t42i",
+      "last_logged_step": 1
     }
   ],
-  "updated_at_utc": "2026-11-27T12:25:26.929979+00:00"
+  "updated_at_utc": "2026-11-27T13:04:50.970332+00:00"
 }

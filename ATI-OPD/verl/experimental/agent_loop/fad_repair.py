@@ -19,7 +19,7 @@ def diagnosis(text):
             data, _ = decoder.raw_decode(text[i:])
         except ValueError:
             continue
-        if all(isinstance(data.get(k), str) and data[k].strip() for k in FIELDS):
+        if isinstance(data, dict) and all(isinstance(data.get(k), str) and data[k].strip() for k in FIELDS):
             return {k: data[k].strip() for k in FIELDS}
     return None
 
@@ -55,15 +55,19 @@ async def repair(worker, agent_loop, output, args, sampling, memory):
     eligible[invalid] = False
     gap = torch.where(eligible, _compute_intervention_gap(s,t,gate.gap_metric), 0.)
     span = _select_intervention_segment(gap, eligible.int().tolist(), gate)
-    focus = decode(ids[span[0]:span[1]]) if span else ""
     e.update(k3_segment=span, location_tokens=len(ids))
+    if span is None:
+        return e
+    start, end, _ = span
+    prefix = ids[:start]
+    focus = decode(ids[start:end])
     raw = args["raw_prompt"]
-    key = retrieve(memory, raw[-1]["content"]+" "+(focus or draft[-1500:])) if memory else None
+    key = retrieve(memory, raw[-1]["content"] + " " + focus) if memory else None
     e["prior"] = key
     limit = int(worker.rollout_config.max_model_len)
     cap = int(worker.rollout_config.response_length)
 
-    async def context(instruction, reserve):
+    async def diagnosis_prompt(instruction, reserve):
         excerpt = ids
         while True:
             messages = [dict(m) for m in raw]
@@ -72,36 +76,46 @@ async def repair(worker, agent_loop, output, args, sampling, memory):
             if len(prompt)+reserve <= limit:
                 return prompt
             if not excerpt:
-                raise ValueError("FAD question and feedback exceed the context budget")
+                return None
             keep = max(0, len(excerpt) - (len(prompt)+reserve-limit) - 8)
             excerpt = excerpt[:keep//2] + (excerpt[-(keep-keep//2):] if keep else [])
 
     async def revise(hint):
-        prompt = await context("Solve the original question again using this feedback:\n"+hint, min(cap,cfg.revision_reserve))
-        result = await worker.llm_client.generate(request_id=uuid4().hex, prompt_ids=prompt, usage_kind="student_suffix",
-            sampling_params={**sampling, "max_tokens":min(cap,limit-len(prompt)), "logprobs":None})
-        revised = list(result.token_ids or [])
+        instruction = (
+            "\n\n[Teacher diagnosis]\n" + hint +
+            "\n[/Teacher diagnosis]\nContinue the reasoning from here using the diagnosis.\n"
+        )
+        prompt = output.prompt_ids + prefix + tok.encode(instruction, add_special_tokens=False)
+        max_tokens = min(cap - start, limit - len(prompt))
+        if max_tokens < min(cap - start, cfg.revision_reserve):
+            e["revision_budget_exhausted"] = True
+            return False
+        result = await worker.llm_client.generate(
+            request_id=uuid4().hex, prompt_ids=prompt, usage_kind="student_suffix",
+            sampling_params={**sampling, "max_tokens":max_tokens, "logprobs":None},
+        )
+        suffix = list((result.token_ids or [])[:max_tokens])
+        revised = prefix + suffix
         verified = False
-        if revised:
+        if suffix:
             candidate = output.model_copy(update=dict(response_ids=revised, response_mask=[1]*len(revised),
                 response_logprobs=None, reward_score=None, extra_fields={}))
             await worker._compute_score([candidate], kwargs=args)
             verified, _ = _extract_outcome_correctness(candidate, gate)
-        e["attempts"].append(dict(text=decode(revised), verified=verified))
-        e["revision_tokens"] += len(revised)
+        e["attempts"].append(dict(text=decode(suffix), verified=verified))
+        e["revision_tokens"] += len(suffix)
         if verified:
-            e.update(ok=True, chosen=revised)
+            e.update(ok=True, chosen=revised, dpo_start=start)
         return verified
 
-    prior = memory[key]["instruction"] if key else ""
-    if key and await revise(prior):
-        e.update(prior_ok=True, transfer=bool(memory[key]["tasks"]) and task not in memory[key]["tasks"])
+    request = ("Diagnose the earliest error. Return JSON with string fields " + ", ".join(FIELDS) +
+               ". Quote the incorrect span verbatim in error. Give a transferable hint for continuing "
+               "from the start of the highlighted segment, without providing the solution or final answer."
+               "\nInspect this candidate in context: " + focus)
+    prompt = await diagnosis_prompt(request, cfg.feedback_tokens)
+    if prompt is None:
+        e["diagnosis_budget_exhausted"] = True
         return e
-    request = ("Diagnose the earliest error. Return JSON with string fields "+", ".join(FIELDS)+
-               ". Quote the incorrect span verbatim in error. Give a transferable hint, no solution or final answer.")
-    if focus:
-        request += "\nInspect this candidate in context: "+focus
-    prompt = await context(request, cfg.feedback_tokens)
     answer = await worker.teacher_server_manager.generate_teacher_segment_single(prefix_ids=prompt,
         max_tokens=cfg.feedback_tokens, routing_key=route, request_id=uuid4().hex)
     feedback = decode(answer.token_ids)
@@ -109,9 +123,16 @@ async def repair(worker, agent_loop, output, args, sampling, memory):
     e.update(feedback=feedback, diagnosis=d, teacher_tokens=len(answer.token_ids), teacher_input_tokens=len(prompt))
     if d:
         if draft.count(d["error"]) == 1:
-            for a,b in zip(tok.encode(draft.split(d["error"])[0], add_special_tokens=False), ids):
+            before_error = tok.encode(draft.split(d["error"])[0], add_special_tokens=False)
+            for a,b in zip(before_error, prefix):
                 if a != b:
                     break
                 e["valid"] += 1
-        await revise(prior+" "+json.dumps(d,ensure_ascii=False))
+        hint = json.dumps(d, ensure_ascii=False)
+        if key:
+            prior = memory[key]["instruction"]
+            if await revise(hint + "\nRetrieved strategy: " + prior):
+                e.update(prior_ok=True, transfer=bool(memory[key]["tasks"]) and task not in memory[key]["tasks"])
+                return e
+        await revise(hint)
     return e

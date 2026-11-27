@@ -4,7 +4,9 @@
 
 两组模型各有 opd、ati-opd、fad-opd、fixed、fad-rsi 五组。配置保存在 ATI-OPD/local/fad_configs/comparison-v1，可用 local/prepare_fad.py 从历史配置重建。opd 保留各模型的 vanilla OPD；ati-opd 从同一配置加入对应历史 ATI 干预和诊断参数；三个 FAD 组从 vanilla 加入 k3 定位和反馈。所有组从原学生权重开始，复用原训练加载器、vLLM、FSDP2、诊断和基准评估（含 step 0）。原生运行入口按历史配置使用 SwanLab。
 
-FAD 仅在训练 rollout 上运行。原始回答由原 reward worker 评分，失败时用 k3 找首个超阈值段。固定库和动态库使用相同的初始策略，检索成功则先尝试自主修订。否则教师生成结构化提示，学生再修订。通过原 verifier 的修订在原题下与错误回答配对；教师确认的首错前缀及正确原答保留原 OPD 监督。actor 沿用原 top-k OPD；修订行只承担偏好梯度。每次仍采样 64 题 × 4 个原答，原答和修订行合并为一次优化器更新。在这一更新前计算冻结参考与当前 actor 的长度归一化 DPO margin，跨 microbatch 累加其两侧的导数。β=0.1，OPD 权重为 1，均为 FAD 专属默认值。每个 batch 后动态组更新策略，固定组持续使用初始库。经验记录于运行目录 fad_experiences，策略快照随原项目 checkpoint 保存。
+FAD 仅在训练 rollout 上运行。原始回答由原 reward worker 评分，失败时用 k3 找首个超阈值段。教师参考原答和分歧段生成结构化诊断。学生逐 token 保留分歧段之前的原答，把诊断附在此前缀末尾，从分歧段起点生成新的推理后缀。检索到策略时先用诊断和策略续写，失败后再只用诊断续写。原 verifier 对保留前缀和新后缀拼成的完整答案判分。正确修订与错误原答组成偏好对，DPO 在共享的原题和保留前缀下比较两个后缀。诊断只用于引导采样，原答前缀和诊断均不进入 DPO 计分。正确原答及教师明确定位的首错之前、位于保留前缀内的 token 仍用原 top-k OPD。
+
+每次仍采样 64 题 × 4 个原答，原答和修订行合并为一次优化器更新。更新前以冻结参考与当前 actor 的后缀平均 log-prob 计算 DPO margin，跨 microbatch 累加其两侧的导数。β=0.1，OPD 权重为 1，均为 FAD 专属默认值。每个 batch 后动态组更新策略，固定组持续使用初始库。经验记录于运行目录 fad_experiences，策略快照随原项目 checkpoint 保存。
 
 在 FAD-RSI 目录可执行配置检查，不加载模型或启动训练：
 
@@ -13,8 +15,7 @@ source env.sh
 python train.py --pair nemotron --mode fad-rsi
 ```
 
-分布式运行需要原项目规定的 tmux 和集群运行环境。本地 FAD 配置已经过 CPU 检查。FAD 需要冻结参考打分、额外师生生成和验证，实际显存、吞吐及效果需实测。
-
+分布式运行需要原项目规定的 tmux 和集群运行环境。本次交付仅配置和 CPU 检查。FAD 需要冻结参考打分、额外师生生成和验证，实际显存、吞吐及效果需实测。
 
 ## 实现与复现实验
 

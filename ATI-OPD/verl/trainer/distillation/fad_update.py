@@ -21,8 +21,9 @@ def actor_batch(trainer, batch, events):
                             non_tensor_batch_keys=[], meta_info_keys=["temperature"])
     responses = batch.batch["responses"]
     cutoff = torch.tensor([e["valid"] for e in events])
+    response_positions = torch.arange(responses.size(1), device=responses.device)
     original.batch["policy_loss_mask"] = (batch.batch["response_mask"].bool() &
-        (torch.arange(responses.size(1))[None,:] < cutoff[:,None]))
+        (response_positions[None, :] < cutoff[:, None]))
     # Zero-supervision rows use one real token to keep FSDP packing and rank sizes uniform.
     preferred = batch.select(batch_keys=fields, non_tensor_batch_keys=[], meta_info_keys=["temperature"])
     preferred.batch = preferred.batch.clone()
@@ -42,11 +43,14 @@ def actor_batch(trainer, batch, events):
     pos_old = torch.zeros(n)
     neg_old = torch.zeros(n)
     paired = torch.tensor([bool(e["chosen"]) for e in events])
+    dpo_start = torch.tensor([e["dpo_start"] if e["chosen"] else responses.size(1) for e in events])
     if paired.any():
         def mean(lp, mask):
             return (lp.masked_fill(~mask.bool(),0).sum(-1)/mask.sum(-1).clamp_min(1))
-        neg_mask = batch.batch["response_mask"]
-        pos_mask = p["response_mask"]
+        # Both continuations are scored under the original question and preserved prefix.
+        suffix_positions = response_positions[None, :] >= dpo_start[:, None]
+        neg_mask = batch.batch["response_mask"].bool() & suffix_positions
+        pos_mask = p["response_mask"].bool() & suffix_positions
         neg_old = mean(batch.batch["fad_sample_logp"], neg_mask)
         pos_old = mean(trainer._compute_ref_log_prob(preferred, current_actor=True).batch["ref_log_prob"],pos_mask)
         pos_ref = mean(trainer._compute_ref_log_prob(preferred).batch["ref_log_prob"],pos_mask)
@@ -61,6 +65,7 @@ def actor_batch(trainer, batch, events):
         proto.batch["fad_slope"] = slope
         proto.batch["fad_old_mean"] = old
         proto.batch["fad_value"] = value
+        proto.batch["fad_dpo_start"] = dpo_start
     result = DataProto.concat([original, preferred])
     # Keep the original DP balance when the batch is split across student ranks.
     indices = torch.arange(n)
