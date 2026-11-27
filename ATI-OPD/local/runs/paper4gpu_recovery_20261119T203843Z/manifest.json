@@ -1,0 +1,114 @@
+{
+  "batch": "paper4gpu_recovery_20261119T203843Z",
+  "created_at_utc": "2026-11-19T20:38:43.637127+00:00",
+  "gpu_indices": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "gpu_uuids": [
+    "GPU-49620fcd-09fb-d128-74a9-62f411bed82e",
+    "GPU-2cdefdb5-364d-3862-c1ef-4c21ae244491",
+    "GPU-c15094b6-1e34-1829-d8d5-432564460414",
+    "GPU-5629cafc-0cdc-4bb0-5a7c-4b29a4bfa353"
+  ],
+  "student_gpus": 2,
+  "teacher_gpus": 2,
+  "memory_target_mib_per_gpu": 122880,
+  "memory_stop_mib_per_gpu": 138240,
+  "ports_authorized_by_user": true,
+  "data_root": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_recovery_20261119T203843Z",
+  "status": "stopped_gpu_busy",
+  "previous_attempt": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_aligned_20261118T140732Z/manifest.json",
+  "retry_reason": "Bounded FP32 selected-logprob forward/backward; resume committed step 120",
+  "runs": [
+    {
+      "variant": "deepseek15-ati",
+      "tag": "deepseek15-ati-recovery-20261119T203843Z",
+      "config": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_recovery_20261119T203843Z/deepseek15-ati.json",
+      "output_dir": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_recovery_20261119T203843Z/deepseek15-ati",
+      "short_tmp_dir": "/data/fd/donghaosen/r2038430",
+      "session": "ati-deepseek15-ati-recovery-20261119T203843Z",
+      "logging_backend": "swanlab",
+      "state": "completed",
+      "started_at_utc": "2026-11-19T20:46:39.736781+00:00",
+      "console_log": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_recovery_20261119T203843Z/deepseek15-ati/logs/train.log",
+      "peak_mib": [
+        86603.6,
+        85171.6,
+        93519.1,
+        91309.1
+      ],
+      "swanlab_url": "https://swanlab.cn/@Dhs2004/ati-opd/runs/vdlz4weh",
+      "last_logged_step": 217,
+      "exit_code": 0,
+      "finished_at_utc": "2026-11-20T14:57:49.732718+00:00",
+      "cloud_finalization": "verified_or_no_cloud_run"
+    },
+    {
+      "variant": "nemotron15-ati",
+      "tag": "nemotron15-ati-recovery-20261119T203843Z",
+      "config": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_recovery_20261119T203843Z/nemotron15-ati.json",
+      "output_dir": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_recovery_20261119T203843Z/nemotron15-ati",
+      "short_tmp_dir": "/data/fd/donghaosen/r2038431",
+      "session": "ati-nemotron15-ati-recovery-20261119T203843Z",
+      "logging_backend": "swanlab",
+      "state": "completed",
+      "started_at_utc": "2026-11-20T16:13:32.157403+00:00",
+      "console_log": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_recovery_20261119T203843Z/nemotron15-ati/logs/train.log",
+      "peak_mib": [
+        86357.6,
+        86257.6,
+        98261.1,
+        95169.1
+      ],
+      "swanlab_url": "https://swanlab.cn/@Dhs2004/ati-opd/runs/shfragms",
+      "last_logged_step": 216,
+      "exit_code": 0,
+      "finished_at_utc": "2026-11-22T23:51:09.928773+00:00",
+      "cloud_finalization": "verified_or_no_cloud_run"
+    },
+    {
+      "variant": "deepseek15-vanilla",
+      "tag": "deepseek15-vanilla-recovery-20261119T203843Z",
+      "config": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_recovery_20261119T203843Z/deepseek15-vanilla.json",
+      "output_dir": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_recovery_20261119T203843Z/deepseek15-vanilla",
+      "short_tmp_dir": "/data/fd/donghaosen/r2038432",
+      "session": "ati-deepseek15-vanilla-recovery-20261119T203843Z",
+      "logging_backend": "swanlab",
+      "state": "completed",
+      "started_at_utc": "2026-11-23T04:30:22.871946+00:00",
+      "console_log": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_recovery_20261119T203843Z/deepseek15-vanilla/logs/train.log",
+      "peak_mib": [
+        85529.6,
+        85717.6,
+        98579.1,
+        94729.1
+      ],
+      "swanlab_url": "https://swanlab.cn/@Dhs2004/ati-opd/runs/vlpksy9a",
+      "last_logged_step": 216,
+      "exit_code": 0,
+      "finished_at_utc": "2026-11-24T21:13:15.765600+00:00",
+      "cloud_finalization": "verified_or_no_cloud_run"
+    },
+    {
+      "variant": "nemotron15-vanilla",
+      "tag": "nemotron15-vanilla-recovery-20261119T203843Z",
+      "config": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_recovery_20261119T203843Z/nemotron15-vanilla.json",
+      "output_dir": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_recovery_20261119T203843Z/nemotron15-vanilla",
+      "short_tmp_dir": "/data/fd/donghaosen/r2038433",
+      "session": "ati-nemotron15-vanilla-recovery-20261119T203843Z",
+      "logging_backend": "swanlab",
+      "state": "blocked_gpu_busy"
+    }
+  ],
+  "notes": [
+    "GPU 0-3: 2 student + 2 teacher; 135 GiB monitored stop threshold.",
+    "Preserve upstream algorithm, shuffle=False, batch64, n4, response23552, 217 total steps.",
+    "First run resumes model, optimizer, RNG, dataloader and ATI calibration from step120.",
+    "Step0 already measured in parent run; skip redundant pre-training evaluation on resume.",
+    "Original artifacts retained. New SwanLab run starts at step121; steps121-125 replayed."
+  ],
+  "updated_at_utc": "2026-11-24T21:14:22.174200+00:00"
+}

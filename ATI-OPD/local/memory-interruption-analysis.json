@@ -1,0 +1,45 @@
+{
+  "observed_interruption": {
+    "utc": "2026-11-19T15:53:45.548272+00:00",
+    "reason": "Local GPU memory guard sent SIGTERM after threshold breach",
+    "threshold_gib": 130,
+    "observed_gpu0_peak_gib": 138.43232421875,
+    "last_logged_step": 125,
+    "last_committed_step": 120,
+    "python_exception_before_stop": false
+  },
+  "memory_hotspot": {
+    "operation": "FSDP token_reward_direct selected-token logprob normalization and backward",
+    "original": "Full sequence FP32 vocabulary tensors and their backward temporaries",
+    "fix": "512-token FP32 chunks with recomputed backward; original BF16 logits saved",
+    "evidence_limit": "No process allocation trace was captured at interruption; guard cause is certain, hotspot attribution is supported by code and GPU reproduction."
+  },
+  "validation": {
+    "dense": {
+      "peak_allocated_gib": 62.92897987365723,
+      "all_finite": true
+    },
+    "chunked": {
+      "peak_allocated_gib": 14.859650611877441,
+      "all_finite": true
+    },
+    "cpu_tests": "20 passed: output and gradient equivalence, no full FP32 tensor saved, diagnostic topk and async diagnostics"
+  },
+  "user_memory_policy": {
+    "target_gib_per_gpu": 120,
+    "emergency_stop_gib_per_gpu": 135,
+    "poll_seconds": 0.5,
+    "planned_student_gpu_memory_utilization": 0.55,
+    "teacher_gpu_memory_utilization": 0.6
+  },
+  "remaining": "Training is running from verified checkpoint120. Complete optimizer-step peak remains to be measured by tmux monitor.",
+  "restart_decision": "Explicit user choice: resume checkpoint120, replay121-125; no fresh restart",
+  "swanlab_compatibility": {
+    "server_response": "New-format projects require SDK >=0.9",
+    "runtime_overlay": "local/runtime-swanlab0103",
+    "sdk": "0.10.3",
+    "original_environment_retained": true
+  },
+  "active_manifest": "/workspace/fudan/donghaosen/ATI-OPD/local/active-four-gpu-run.json",
+  "swanlab_url": "https://swanlab.cn/@Dhs2004/ati-opd/runs/vdlz4weh"
+}

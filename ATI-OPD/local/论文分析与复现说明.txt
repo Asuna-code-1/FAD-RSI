@@ -1,0 +1,72 @@
+ATI-OPD：论文分析、部署与复现边界
+核查版本：2610.38160v1；部署日期：2026-11-17
+
+一、来源与结论
+论文：ATI-OPD: Adaptive Teacher Intervention for Stable Long-Sequence On-Policy Distillation
+https://arxiv.org/abs/2610.38160v1
+项目：https://github.com/jubgjf/ATI-OPD
+默认分支是 dmpd，不是 main。下载 commit：10db7986937784dffee5597cae7778770f81c471。
+仓库基于 verl，保留通用 verl README，但有实际的教师干预、后续监督筛选、分析与测试代码，并非空仓库。
+
+结论：两组 1.5B 师生模型、训练及评测数据均可公开获取，核心方法具备复现条件。本次完成 GPU 兼容环境、资源下载和离线验证；尚未验证分布式 GPU 训练，也未复测论文准确率。不能宣称已完成论文结果复现。
+
+二、方法与论文结果
+问题：长响应中的学生前缀偏离教师分布后，后续 token 监督越来越不可靠，更新可能加剧错误轨迹、长度膨胀和梯度尖峰。只裁剪损失不能修复前缀。
+ATI-OPD 先生成完整学生响应，再以固定 128-token 段监测师生分歧。使用有数值裁剪的 sampled-token K3 分数，找到平均分数首次超过 0.15 的段。
+教师替换该处最多 128 个 token，学生从修改后的前缀继续生成。主设置每条轨迹只干预一次，保留学生和教师 token 的 OPD 监督。
+对新的学生后缀，以 64-token 窗口检查分歧；两个连续有效窗口超过阈值时，屏蔽这两个窗口及后续 token 的蒸馏损失。阈值来自原始正确响应窗口均值的滚动池（2048 项）的延迟 90% 分位数，至少积累 128 个窗口才使用；此前为 0.15。
+后缀在决定损失掩码前已完整生成，所以屏蔽监督不是节省这些 token 的生成成本。
+教师是固定 RL 模型，测试只使用学生。它属于教师干预的 on-policy 蒸馏稳定化，不是教师／改进算法自身共同进化的完整 RSI。
+
+论文表 1 的五任务等权平均：DeepSeek 学生 OPD 38.45%，ATI-OPD 39.65%（+1.20 个百分点）；Nemotron 学生 OPD 52.72%，ATI-OPD 54.07%（+1.35 个百分点）。这些是论文报告值，不是本地测得值。
+每题生成 16 条响应后平均正确率。表中误差主要反映推理采样，并不等同多次独立训练的稳定性；部分敏感性实验只有一次训练。
+主参数：217 步，batch 64，每题 rollout 4，AdamW lr=1e-6 常数，weight_decay=0.01，grad_clip=1；prompt 上限 1024、response 上限 23552；训练采样 temperature/top_p=1；评测 temperature=0.7、top_p=0.95；student top-k=16 的精确教师评分路径。
+
+三、部署与已下载资源
+代码：/workspace/fudan/donghaosen/ATI-OPD
+独立环境：/workspace/fudan/donghaosen/ATI-OPD/.venv
+数据及缓存：/data/fd/donghaosen/ati-opd
+共享模型原件：/data/fd/donghaosen/opd-shared/models
+项目 data/、models/、outputs/ 指向数据盘。
+
+两组师生：
+deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B ← hbx/JustRL-DeepSeek-1.5B
+nvidia/OpenMath-Nemotron-1.5B ← hbx/JustRL-Nemotron-1.5B
+四个模型完整 safetensors、配置及 tokenizer 已下载，固定 revision，逐文件核验 SHA256/LFS。共享模型避免两个项目重复存储。
+
+训练数据采用作者脚本指定的 open-r1/DAPO-Math-17k-Processed，全量 all 配置 17,398 条；按仓库默认 seed=42、test_size=0.2 转换为 13,918 条训练及 3,480 条验证，prompt_style=qwen3_boxed。
+这里重建的是公开脚本默认划分，论文未提供历史 processed parquet 的哈希，因此不能称为逐字节相同的历史训练集。
+
+五个测试集已固定下载 revision，并由仓库原生 MathBenchmarkDataset 实际读取：
+AIME24：30；AIME25：30；AMC23：40；AMO-Bench：39；HMMT February 2026：33。
+AMO 使用代码中定义的 AMO-Bench-P parser 子集，排除 description 类型；原始完整 AMO 数据仍保留。
+原始快照、转换结果、manifest 分别保存在 data/raw、data/prepared、data/source-manifest.json。
+
+四、环境与本地修改
+Python 3.12.3，Torch 2.10.0+cu128，vLLM 0.18.0，Transformers 4.57.6，HF Hub 0.36.2，NumPy 2.2.6，FlashAttention 2.8.3，自带 verl 0.8.0.dev。
+ATI 仓库没有给出可直接用于本机的完整 GPU 锁定环境；本地配置是经过导入、CPU 算法测试与 GPU 注意力验证的兼容实现，实际版本锁定在 environment-freeze.txt。
+verl setup.py 的旧 NumPy<2 限制与新 vLLM/OpenCV 依赖冲突，元数据调整为 >=1.26,<3。
+修复 logprobs_from_logits 在 CPU 张量上误调用 FlashAttention CUDA 交叉熵的问题：仅增加 logits.is_cuda 判断，CUDA 训练路径不变。该问题在原生 CPU 测试中实际复现，修改后 101 项相关测试全部通过。
+runtime.patch 保留全部源码变更；没有修改干预阈值、窗口校准或损失算法。
+
+五、配置与验证
+source /workspace/fudan/donghaosen/ATI-OPD/local/activate.sh
+python /workspace/fudan/donghaosen/opd-reproduction-setup/preview_command.py /workspace/fudan/donghaosen/ATI-OPD/local/deepseek15-ati.json
+
+preview_command.py 只打印命令，不运行训练。以下配置均已通过 Hydra 解析：
+deepseek15-ati.json / deepseek15-vanilla.json
+nemotron15-ati.json / nemotron15-vanilla.json
+对应完整展开配置为 *.resolved.yaml。
+本地草案按单机 4 张学生卡 + 4 张教师卡配置，使用 FSDP2 和 CUDA，保留主论文超参数。该资源划分尚未跑过分布式训练，不能作为已经验证的最低硬件要求。
+原始 run/common.sh 面向华为 NPU、多节点集群并含外部目录和服务启动逻辑，本机不应直接执行该脚本。
+
+W&B 默认 online，本地日志写入数据盘；凭据未写进配置、代码、文档或冻结清单。将来经授权启动可用 opd-reproduction-setup/with_wandb.py 在子进程环境中读取现有凭据，不打印密钥。
+
+已通过：依赖兼容检查、核心 agent/teacher 模块导入、4 份 Hydra 配置解析、5 个原生 benchmark 读取、101 项相关原生测试、模型 LFS SHA256 和 tokenizer 核验、真实 DeepSeek 学生 CPU 前向、H200 FlashAttention BF16 与 SDPA 数值对照。
+测试覆盖 teacher intervention、后缀监督选择、蒸馏配置、token reward、teacher-segment loss 和 horizon mask。
+日志：/data/fd/donghaosen/ati-opd/logs
+
+六、未完成事项与下一步边界
+尚未运行训练或正式模型评测，没有训练后 ATI checkpoint 或本地准确率。离线验证不覆盖 Ray 通信、GPU 全链路 rollout、更新与权重同步、长序列峰值显存。
+根目录 AGENTS.md 禁止本地监听端口，而原生训练框架依赖 Ray/vLLM 服务；需要在允许这些服务的环境开展正式实验，或取得明确规则例外。本次没有启动监听服务，也未启动训练。
+没有证据确认该工作属于 EMNLP 2026 主会；本任务依据用户指定的 arXiv v1 论文进行部署。

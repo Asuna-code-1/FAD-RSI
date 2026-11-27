@@ -1,0 +1,15 @@
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.env
+.venv/
+.credentials/
+AGENTS.md
+/ATI-OPD/data
+/ATI-OPD/models
+/ATI-OPD/outputs
+/ATI-OPD/local/runtime-ray250/
+/ATI-OPD/local/runtime-swanlab0103/
+wandb/
+*.safetensors
+*.parquet

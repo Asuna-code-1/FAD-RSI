@@ -1,0 +1,39 @@
+{
+  "manifest": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_aligned_20261118T140732Z/manifest.json",
+  "upstream_commit": "10db7986937784dffee5597cae7778770f81c471",
+  "checks": [
+    {
+      "variant": "deepseek15-ati",
+      "hydra_validated": true,
+      "upstream_override_count": 180,
+      "shuffle": false,
+      "initial_benchmark": true,
+      "diagnostics": true
+    },
+    {
+      "variant": "nemotron15-ati",
+      "hydra_validated": true,
+      "upstream_override_count": 180,
+      "shuffle": false,
+      "initial_benchmark": true,
+      "diagnostics": true
+    },
+    {
+      "variant": "deepseek15-vanilla",
+      "hydra_validated": true,
+      "upstream_override_count": 153,
+      "shuffle": false,
+      "initial_benchmark": true,
+      "diagnostics": true
+    },
+    {
+      "variant": "nemotron15-vanilla",
+      "hydra_validated": true,
+      "upstream_override_count": 153,
+      "shuffle": false,
+      "initial_benchmark": true,
+      "diagnostics": true
+    }
+  ],
+  "diagnostic_tests": "15 passed; heatmap backend and async diagnostics"
+}

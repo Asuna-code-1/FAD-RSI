@@ -1,0 +1,22 @@
+[
+  {
+    "config": "deepseek15-ati.json",
+    "overrides": 94,
+    "status": "composed"
+  },
+  {
+    "config": "deepseek15-vanilla.json",
+    "overrides": 94,
+    "status": "composed"
+  },
+  {
+    "config": "nemotron15-ati.json",
+    "overrides": 94,
+    "status": "composed"
+  },
+  {
+    "config": "nemotron15-vanilla.json",
+    "overrides": 94,
+    "status": "composed"
+  }
+]

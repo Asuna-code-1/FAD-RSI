@@ -1,0 +1,38 @@
+{
+  "tokenizers": [
+    {
+      "path": "/data/fd/donghaosen/opd-shared/models/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+      "model_type": "qwen2",
+      "vocab_size": 151936,
+      "tokenizer_len": 151665,
+      "prompt_tokens": 13
+    },
+    {
+      "path": "/data/fd/donghaosen/opd-shared/models/hbx/JustRL-DeepSeek-1.5B",
+      "model_type": "qwen2",
+      "vocab_size": 151936,
+      "tokenizer_len": 151665,
+      "prompt_tokens": 13
+    },
+    {
+      "path": "/data/fd/donghaosen/opd-shared/models/nvidia/OpenMath-Nemotron-1.5B",
+      "model_type": "qwen2",
+      "vocab_size": 151936,
+      "tokenizer_len": 151665,
+      "prompt_tokens": 20
+    },
+    {
+      "path": "/data/fd/donghaosen/opd-shared/models/hbx/JustRL-Nemotron-1.5B",
+      "model_type": "qwen2",
+      "vocab_size": 151936,
+      "tokenizer_len": 151665,
+      "prompt_tokens": 20
+    }
+  ],
+  "deepseek_cpu_forward": "passed",
+  "logits_shape": [
+    1,
+    3,
+    151936
+  ]
+}

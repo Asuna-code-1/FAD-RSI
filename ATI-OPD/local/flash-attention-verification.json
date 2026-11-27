@@ -1,0 +1,12 @@
+{
+  "torch": "2.10.0+cu128",
+  "device": "NVIDIA H200",
+  "shape": [
+    1,
+    16,
+    2,
+    64
+  ],
+  "max_error_vs_sdpa": 0.0,
+  "status": "passed"
+}

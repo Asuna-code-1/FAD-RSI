@@ -1,0 +1,242 @@
+{
+  "created_at": "2026-11-18T13:49:42.947006+00:00",
+  "upstream_commit": "10db7986937784dffee5597cae7778770f81c471",
+  "config_source": "Effective config printed by the current TaskRunner at startup, not newly composed defaults",
+  "running_config": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_20261117T190422Z/deepseek15-ati.json",
+  "current_step": 96,
+  "evaluation_steps": [
+    20,
+    40,
+    60,
+    80
+  ],
+  "initial_evaluation": {
+    "trainer.val_before_train": false,
+    "trainer.test_before_train": false,
+    "trainer.teacher_val_before_train": false
+  },
+  "step0_conclusion": "No locally measured Student baseline. Upstream launcher also defaults to no pretraining evaluation; paper Table 1 reports Student baseline separately.",
+  "paper_table2_checks": {
+    "data.train_batch_size": {
+      "paper": 64,
+      "effective": 64,
+      "match": true
+    },
+    "data.max_prompt_length": {
+      "paper": 1024,
+      "effective": 1024,
+      "match": true
+    },
+    "data.max_response_length": {
+      "paper": 23552,
+      "effective": 23552,
+      "match": true
+    },
+    "actor_rollout_ref.rollout.n": {
+      "paper": 4,
+      "effective": 4,
+      "match": true
+    },
+    "actor_rollout_ref.rollout.temperature": {
+      "paper": 1.0,
+      "effective": 1.0,
+      "match": true
+    },
+    "actor_rollout_ref.rollout.top_p": {
+      "paper": 1.0,
+      "effective": 1.0,
+      "match": true
+    },
+    "actor_rollout_ref.actor.optim.lr": {
+      "paper": 1e-06,
+      "effective": 1e-06,
+      "match": true
+    },
+    "actor_rollout_ref.actor.optim.weight_decay": {
+      "paper": 0.01,
+      "effective": 0.01,
+      "match": true
+    },
+    "actor_rollout_ref.actor.grad_clip": {
+      "paper": 1.0,
+      "effective": 1.0,
+      "match": true
+    },
+    "trainer.total_training_steps": {
+      "paper": 217,
+      "effective": 217,
+      "match": true
+    },
+    "distillation.distillation_loss.topk": {
+      "paper": 16,
+      "effective": 16,
+      "match": true
+    },
+    "distillation.intervention.student_segment_length": {
+      "paper": 128,
+      "effective": 128,
+      "match": true
+    },
+    "distillation.intervention.teacher_segment_length": {
+      "paper": 128,
+      "effective": 128,
+      "match": true
+    },
+    "distillation.intervention.gap_threshold": {
+      "paper": 0.15,
+      "effective": 0.15,
+      "match": true
+    },
+    "distillation.intervention.max_interventions_per_sample": {
+      "paper": 1,
+      "effective": 1,
+      "match": true
+    },
+    "distillation.intervention.teacher_temperature": {
+      "paper": 0.6,
+      "effective": 0.6,
+      "match": true
+    },
+    "distillation.intervention.teacher_top_p": {
+      "paper": 0.95,
+      "effective": 0.95,
+      "match": true
+    },
+    "distillation.intervention.teacher_top_k": {
+      "paper": 20,
+      "effective": 20,
+      "match": true
+    },
+    "distillation.intervention.prune_future_window_tokens": {
+      "paper": 64,
+      "effective": 64,
+      "match": true
+    },
+    "distillation.intervention.prune_future_min_valid_tokens": {
+      "paper": 32,
+      "effective": 32,
+      "match": true
+    },
+    "distillation.intervention.prune_future_bad_window_persistence": {
+      "paper": 2,
+      "effective": 2,
+      "match": true
+    },
+    "distillation.intervention.prune_future_healthy_quantile": {
+      "paper": 0.9,
+      "effective": 0.9,
+      "match": true
+    },
+    "distillation.intervention.prune_future_calibration_window_blocks": {
+      "paper": 2048,
+      "effective": 2048,
+      "match": true
+    },
+    "distillation.intervention.prune_future_calibration_min_blocks": {
+      "paper": 128,
+      "effective": 128,
+      "match": true
+    },
+    "distillation.intervention.prune_future_max_healthy_blocks_per_sample": {
+      "paper": 8,
+      "effective": 8,
+      "match": true
+    },
+    "actor_rollout_ref.rollout.benchmark_sampling_profiles.legacy.n": {
+      "paper": 16,
+      "effective": 16,
+      "match": true
+    },
+    "actor_rollout_ref.rollout.benchmark_sampling_profiles.legacy.temperature": {
+      "paper": 0.7,
+      "effective": 0.7,
+      "match": true
+    },
+    "actor_rollout_ref.rollout.benchmark_sampling_profiles.legacy.top_p": {
+      "paper": 0.95,
+      "effective": 0.95,
+      "match": true
+    }
+  },
+  "upstream_default_differences": {
+    "data.shuffle": {
+      "upstream_script_default": false,
+      "effective": true
+    },
+    "data.seed": {
+      "upstream_script_default": -42,
+      "effective": 42
+    },
+    "distillation.diagnostics.enabled": {
+      "upstream_script_default": true,
+      "effective": false
+    },
+    "distillation.diagnostics.collect_topk_overlap": {
+      "upstream_script_default": true,
+      "effective": false
+    },
+    "distillation.diagnostics.collect_rethinking_opd_metrics": {
+      "upstream_script_default": true,
+      "effective": false
+    },
+    "distillation.diagnostics.collect_intervention_boundary_metrics": {
+      "upstream_script_default": true,
+      "effective": false
+    },
+    "distillation.diagnostics.collect_intervention_outcome_transitions": {
+      "upstream_script_default": true,
+      "effective": false
+    },
+    "actor_rollout_ref.actor.use_torch_compile": {
+      "upstream_script_default": false,
+      "effective": true
+    },
+    "actor_rollout_ref.actor.fsdp_config.forward_prefetch": {
+      "upstream_script_default": true,
+      "effective": false
+    },
+    "actor_rollout_ref.actor.ulysses_sequence_parallel_size": {
+      "upstream_script_default": 4,
+      "effective": 1
+    },
+    "actor_rollout_ref.rollout.tensor_model_parallel_size": {
+      "upstream_script_default": 2,
+      "effective": 1
+    },
+    "actor_rollout_ref.rollout.gpu_memory_utilization": {
+      "upstream_script_default": 0.6,
+      "effective": 0.78
+    },
+    "actor_rollout_ref.rollout.max_num_batched_tokens": {
+      "upstream_script_default": 2048,
+      "effective": 8192
+    },
+    "trainer.total_epochs": {
+      "upstream_script_default": 1,
+      "effective": 3
+    },
+    "trainer.metric_logging.archive.enabled": {
+      "upstream_script_default": true,
+      "effective": false
+    },
+    "trainer.metric_logging.mode": {
+      "upstream_script_default": "balanced",
+      "effective": "full"
+    }
+  },
+  "material_findings": [
+    "Training data shuffle=True versus upstream False changes sample order. This is an omitted launcher override, not required by four-GPU hardware.",
+    "Diagnostics disabled versus upstream enabled omits paper stability and mechanism analyses; already unrecorded historical diagnostics cannot be reconstructed from scalar logs alone.",
+    "max epochs=3 is capped by total_training_steps=217; data loader length=217, so actual scheduled updates equal one epoch.",
+    "Training-time benchmark set extends upstream four-task default with HMMT February 2026. Legacy sampling matches paper; additional train_sampling metrics must remain separate.",
+    "Data split uses upstream preprocessing defaults 80/20, seed 42; paper does not establish identical split artifact/revision/order.",
+    "Runtime adaptation uses 4 H200 GPUs, CUDA/FSDP2 and Ray 2.50 overlay instead of upstream Ascend/NPU launcher.",
+    "SwanLab replaces W&B at explicit user request; Average uses percent and equal task weights."
+  ],
+  "assessment": "Main ATI algorithm and Table 1 accuracy protocol match documented settings; this is not yet a strict full-paper reproduction.",
+  "recommendations": [
+    "Evaluate the unchanged original student weights with the same five-task legacy profile to obtain a measured step-0 baseline; identify it as a retrospective baseline evaluation.",
+    "For a strict reproduction, start a separately identified run with explicit upstream sample order and full required diagnostics; do not silently change the ongoing training trajectory.",
+    "Keep final checkpoint at step 217 for paper comparison; finish both ATI and matched vanilla OPD and compute inference standard errors."
+  ]
+}

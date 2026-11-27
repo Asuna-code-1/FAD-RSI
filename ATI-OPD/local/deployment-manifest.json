@@ -1,0 +1,38 @@
+{
+  "paper": "2610.38160v1",
+  "project": "/workspace/fudan/donghaosen/ATI-OPD",
+  "data_root": "/data/fd/donghaosen/ati-opd",
+  "environment": "/workspace/fudan/donghaosen/ATI-OPD/.venv",
+  "status": "assets_configured_offline_validated_not_trained",
+  "models": [
+    {
+      "repo": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+      "revision": "ad9f0ae0864d7fbcd1cd905e3c6c5b069cc8b562",
+      "path": "/data/fd/donghaosen/opd-shared/models/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+      "bytes": 3561266206
+    },
+    {
+      "repo": "hbx/JustRL-DeepSeek-1.5B",
+      "revision": "0637e4096c789c67f9eecbe8355e0bdeddede1c2",
+      "path": "/data/fd/donghaosen/opd-shared/models/hbx/JustRL-DeepSeek-1.5B",
+      "bytes": 3561259454
+    },
+    {
+      "repo": "nvidia/OpenMath-Nemotron-1.5B",
+      "revision": "59280da0e5508b98f4ae90e8886442f28ed561cb",
+      "path": "/data/fd/donghaosen/opd-shared/models/nvidia/OpenMath-Nemotron-1.5B",
+      "bytes": 3103353857
+    },
+    {
+      "repo": "hbx/JustRL-Nemotron-1.5B",
+      "revision": "9c904d05e6aac281a5e57f2357acd94662f66cad",
+      "path": "/data/fd/donghaosen/opd-shared/models/hbx/JustRL-Nemotron-1.5B",
+      "bytes": 3570100493
+    }
+  ],
+  "training_started": false,
+  "listening_service_started": false,
+  "config_count": 4,
+  "tests_passed": 101,
+  "strict_paper_results_reproduced": false
+}

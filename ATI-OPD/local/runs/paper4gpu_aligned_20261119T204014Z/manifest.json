@@ -1,0 +1,85 @@
+{
+  "batch": "paper4gpu_aligned_20261119T204014Z",
+  "created_at_utc": "2026-11-19T20:40:14.914298+00:00",
+  "gpu_indices": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "gpu_uuids": [
+    "GPU-49620fcd-09fb-d128-74a9-62f411bed82e",
+    "GPU-2cdefdb5-364d-3862-c1ef-4c21ae244491",
+    "GPU-c15094b6-1e34-1829-d8d5-432564460414",
+    "GPU-5629cafc-0cdc-4bb0-5a7c-4b29a4bfa353"
+  ],
+  "student_gpus": 2,
+  "teacher_gpus": 2,
+  "memory_target_mib_per_gpu": 122880,
+  "memory_stop_mib_per_gpu": 138240,
+  "ports_authorized_by_user": true,
+  "data_root": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_aligned_20261119T204014Z",
+  "status": "failed_queue_paused",
+  "notes": [
+    "GPU 0-3: 2 student + 2 teacher; about 120 GiB target, 135 GiB emergency stop.",
+    "Fresh weights and measured step0, shuffle=False, upstream algorithm and full diagnostics.",
+    "512-token FP32 logprob workspace; student inference memory fraction 0.55 for headroom.",
+    "ATI DeepSeek then ATI Nemotron, followed by both vanilla OPD baselines."
+  ],
+  "previous_attempt": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_aligned_20261118T140732Z/manifest.json",
+  "retry_reason": "User-requested full rerun after bounded-logprob memory fix; target 120 GiB",
+  "runs": [
+    {
+      "variant": "deepseek15-ati",
+      "tag": "deepseek15-ati-aligned-20261119T204014Z",
+      "config": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_aligned_20261119T204014Z/deepseek15-ati.json",
+      "output_dir": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_aligned_20261119T204014Z/deepseek15-ati",
+      "short_tmp_dir": "/data/fd/donghaosen/a2040140",
+      "session": "ati-deepseek15-ati-aligned-20261119T204014Z",
+      "logging_backend": "swanlab",
+      "state": "failed",
+      "started_at_utc": "2026-11-19T20:41:18.904054+00:00",
+      "console_log": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_aligned_20261119T204014Z/deepseek15-ati/logs/train.log",
+      "peak_mib": [
+        616.3,
+        616.3,
+        616.3,
+        616.3
+      ],
+      "exit_code": 1,
+      "finished_at_utc": "2026-11-19T20:42:05.190750+00:00",
+      "cloud_finalization": "verified_or_no_cloud_run"
+    },
+    {
+      "variant": "nemotron15-ati",
+      "tag": "nemotron15-ati-aligned-20261119T204014Z",
+      "config": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_aligned_20261119T204014Z/nemotron15-ati.json",
+      "output_dir": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_aligned_20261119T204014Z/nemotron15-ati",
+      "short_tmp_dir": "/data/fd/donghaosen/a2040141",
+      "session": "ati-nemotron15-ati-aligned-20261119T204014Z",
+      "logging_backend": "swanlab",
+      "state": "prepared"
+    },
+    {
+      "variant": "deepseek15-vanilla",
+      "tag": "deepseek15-vanilla-aligned-20261119T204014Z",
+      "config": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_aligned_20261119T204014Z/deepseek15-vanilla.json",
+      "output_dir": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_aligned_20261119T204014Z/deepseek15-vanilla",
+      "short_tmp_dir": "/data/fd/donghaosen/a2040142",
+      "session": "ati-deepseek15-vanilla-aligned-20261119T204014Z",
+      "logging_backend": "swanlab",
+      "state": "prepared"
+    },
+    {
+      "variant": "nemotron15-vanilla",
+      "tag": "nemotron15-vanilla-aligned-20261119T204014Z",
+      "config": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_aligned_20261119T204014Z/nemotron15-vanilla.json",
+      "output_dir": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_aligned_20261119T204014Z/nemotron15-vanilla",
+      "short_tmp_dir": "/data/fd/donghaosen/a2040143",
+      "session": "ati-nemotron15-vanilla-aligned-20261119T204014Z",
+      "logging_backend": "swanlab",
+      "state": "prepared"
+    }
+  ],
+  "updated_at_utc": "2026-11-19T20:42:05.852907+00:00"
+}

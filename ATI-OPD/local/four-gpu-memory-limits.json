@@ -1,0 +1,6 @@
+{
+  "memory_stop_mib_per_gpu": 138240,
+  "user_request": "显存控制在120g左右；135g紧急停止阈值",
+  "unit": "MiB",
+  "target_mib_per_gpu": 122880
+}

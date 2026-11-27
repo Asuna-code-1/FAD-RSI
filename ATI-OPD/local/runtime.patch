@@ -1,0 +1,26 @@
+diff --git a/setup.py b/setup.py
+index 9e46f13e..183dc1ca 100644
+--- a/setup.py
++++ b/setup.py
+@@ -35,7 +35,7 @@ install_requires = [
+     "jsonschema",
+     "langdetect",
+     "nltk>=3.9",
+-    "numpy<2.0.0",
++    "numpy>=1.26,<3",
+     "pandas",
+     "peft",
+     "pyarrow>=19.0.0",
+diff --git a/verl/utils/torch_functional.py b/verl/utils/torch_functional.py
+index 8a6c1fd8..3f045378 100644
+--- a/verl/utils/torch_functional.py
++++ b/verl/utils/torch_functional.py
+@@ -86,7 +86,7 @@ def logprobs_from_logits(logits, labels, inplace_backward=True):
+     Returns:
+         Tensor: Log-probabilities of the target labels, shape logits.shape[:-1].
+     """
+-    if FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE:
++    if FLAH_ATTN_CROSS_ENTROPY_LOSS_AVAILABLE and logits.is_cuda:
+         batch_dim = logits.shape[:-1]
+         last_dim = logits.shape[-1]
+         logits = logits.reshape(-1, last_dim)

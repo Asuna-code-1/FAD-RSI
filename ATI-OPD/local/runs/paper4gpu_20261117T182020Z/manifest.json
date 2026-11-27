@@ -1,0 +1,78 @@
+{
+  "batch": "paper4gpu_20261117T182020Z",
+  "created_at_utc": "2026-11-17T18:20:20.805122+00:00",
+  "gpu_indices": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "gpu_uuids": [
+    "GPU-49620fcd-09fb-d128-74a9-62f411bed82e",
+    "GPU-2cdefdb5-364d-3862-c1ef-4c21ae244491",
+    "GPU-c15094b6-1e34-1829-d8d5-432564460414",
+    "GPU-5629cafc-0cdc-4bb0-5a7c-4b29a4bfa353"
+  ],
+  "student_gpus": 2,
+  "teacher_gpus": 2,
+  "memory_target_mib_per_gpu": 122880,
+  "memory_stop_mib_per_gpu": 124928,
+  "ports_authorized_by_user": true,
+  "data_root": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_20261117T182020Z",
+  "runs": [
+    {
+      "variant": "deepseek15-ati",
+      "tag": "deepseek15-ati-20261117T182020Z",
+      "config": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_20261117T182020Z/deepseek15-ati.json",
+      "output_dir": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_20261117T182020Z/deepseek15-ati",
+      "session": "ati-deepseek15-ati-20261117T182020Z",
+      "wandb_run_id": "ati1820200",
+      "state": "failed",
+      "started_at_utc": "2026-11-17T18:22:22.967962+00:00",
+      "console_log": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_20261117T182020Z/deepseek15-ati/logs/train.log",
+      "peak_mib": [
+        616.3,
+        616.3,
+        616.3,
+        616.3
+      ],
+      "exit_code": 1,
+      "finished_at_utc": "2026-11-17T18:24:55.900765+00:00"
+    },
+    {
+      "variant": "nemotron15-ati",
+      "tag": "nemotron15-ati-20261117T182020Z",
+      "config": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_20261117T182020Z/nemotron15-ati.json",
+      "output_dir": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_20261117T182020Z/nemotron15-ati",
+      "session": "ati-nemotron15-ati-20261117T182020Z",
+      "wandb_run_id": "ati1820201",
+      "state": "prepared"
+    },
+    {
+      "variant": "deepseek15-vanilla",
+      "tag": "deepseek15-vanilla-20261117T182020Z",
+      "config": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_20261117T182020Z/deepseek15-vanilla.json",
+      "output_dir": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_20261117T182020Z/deepseek15-vanilla",
+      "session": "ati-deepseek15-vanilla-20261117T182020Z",
+      "wandb_run_id": "ati1820202",
+      "state": "prepared"
+    },
+    {
+      "variant": "nemotron15-vanilla",
+      "tag": "nemotron15-vanilla-20261117T182020Z",
+      "config": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_20261117T182020Z/nemotron15-vanilla.json",
+      "output_dir": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_20261117T182020Z/nemotron15-vanilla",
+      "session": "ati-nemotron15-vanilla-20261117T182020Z",
+      "wandb_run_id": "ati1820203",
+      "state": "prepared"
+    }
+  ],
+  "status": "failed_queue_paused",
+  "notes": [
+    "Original training hyperparameters preserved; physical resource split reduced from 4+4 to 2+2.",
+    "Auxiliary DAPO validation disabled to match upstream TEST_FREQ=-1; paper five-benchmark evaluation every 20 steps retained.",
+    "Sequential ATI DeepSeek, ATI Nemotron, then both vanilla OPD baselines.",
+    "120 GiB target; automatic stop above 122 GiB; peaks must be measured, not assumed."
+  ],
+  "updated_at_utc": "2026-11-17T18:24:59.414182+00:00"
+}

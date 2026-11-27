@@ -1,0 +1,102 @@
+[
+  {
+    "run": "paper4gpu_20261125T093352Z",
+    "variant": "nemotron15-opd",
+    "shards": 11,
+    "rows": 600,
+    "steps": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100,
+      120,
+      140,
+      160,
+      180,
+      200,
+      217
+    ],
+    "file": "experiments/results/paper4gpu_20261125T093352Z/nemotron15-opd.csv"
+  },
+  {
+    "run": "paper4gpu_aligned_20261118T140732Z",
+    "variant": "deepseek15-ati",
+    "shards": 6,
+    "rows": 350,
+    "steps": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100,
+      120
+    ],
+    "file": "experiments/results/paper4gpu_aligned_20261118T140732Z/deepseek15-ati.csv"
+  },
+  {
+    "run": "paper4gpu_recovery_20261119T203843Z",
+    "variant": "deepseek15-ati",
+    "shards": 11,
+    "rows": 600,
+    "steps": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100,
+      120,
+      140,
+      160,
+      180,
+      200,
+      217
+    ],
+    "file": "experiments/results/paper4gpu_recovery_20261119T203843Z/deepseek15-ati.csv"
+  },
+  {
+    "run": "paper4gpu_recovery_20261119T203843Z",
+    "variant": "deepseek15-vanilla",
+    "shards": 11,
+    "rows": 600,
+    "steps": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100,
+      120,
+      140,
+      160,
+      180,
+      200,
+      217
+    ],
+    "file": "experiments/results/paper4gpu_recovery_20261119T203843Z/deepseek15-vanilla.csv"
+  },
+  {
+    "run": "paper4gpu_recovery_20261119T203843Z",
+    "variant": "nemotron15-ati",
+    "shards": 11,
+    "rows": 600,
+    "steps": [
+      0,
+      20,
+      40,
+      60,
+      80,
+      100,
+      120,
+      140,
+      160,
+      180,
+      200,
+      217
+    ],
+    "file": "experiments/results/paper4gpu_recovery_20261119T203843Z/nemotron15-ati.csv"
+  }
+]

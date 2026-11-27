@@ -1,0 +1,54 @@
+{
+  "batch": "paper4gpu_20261125T081825Z",
+  "created_at_utc": "2026-11-25T08:18:25.759548+00:00",
+  "gpu_indices": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "gpu_uuids": [
+    "GPU-49620fcd-09fb-d128-74a9-62f411bed82e",
+    "GPU-2cdefdb5-364d-3862-c1ef-4c21ae244491",
+    "GPU-c15094b6-1e34-1829-d8d5-432564460414",
+    "GPU-5629cafc-0cdc-4bb0-5a7c-4b29a4bfa353"
+  ],
+  "student_gpus": 2,
+  "teacher_gpus": 2,
+  "memory_target_mib_per_gpu": 122880,
+  "memory_stop_mib_per_gpu": 138240,
+  "ports_authorized_by_user": true,
+  "data_root": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_20261125T081825Z",
+  "status": "failed_queue_paused",
+  "previous_attempt": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/nemotron15_opd_20261125T072546Z/manifest.json",
+  "notes": [
+    "JustRL-Nemotron-1.5B teacher -> OpenMath-Nemotron-1.5B student; vanilla OPD with intervention disabled.",
+    "Preserve original project training settings and DAPO dataset; 217 steps, batch 64, n=4, response length 23552.",
+    "GPU 0-3 split: 2 student + 2 teacher. 120 GiB target and 135 GiB emergency stop per GPU."
+  ],
+  "retry_reason": "Restart requested after step-0 validation stall; stopped prior tagged Ray/vLLM run and confirmed GPUs 0-3 free.",
+  "runs": [
+    {
+      "variant": "nemotron15-opd",
+      "tag": "nemotron15-opd-20261125T081825Z",
+      "config": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_20261125T081825Z/nemotron15-opd.json",
+      "output_dir": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_20261125T081825Z/nemotron15-opd",
+      "session": "ati-nemotron15-opd-20261125T081825Z",
+      "short_tmp_dir": "/data/fd/donghaosen/ati-opd/tmp/0818250",
+      "logging_backend": "swanlab",
+      "state": "failed",
+      "started_at_utc": "2026-11-25T08:18:26.438000+00:00",
+      "console_log": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_20261125T081825Z/nemotron15-opd/logs/train.log",
+      "peak_mib": [
+        616.3,
+        616.3,
+        616.3,
+        616.3
+      ],
+      "exit_code": 1,
+      "finished_at_utc": "2026-11-25T08:19:14.344487+00:00",
+      "cloud_finalization": "verified_or_no_cloud_run"
+    }
+  ],
+  "updated_at_utc": "2026-11-25T08:19:14.990208+00:00"
+}

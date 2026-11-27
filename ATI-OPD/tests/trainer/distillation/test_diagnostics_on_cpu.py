@@ -1,0 +1,1603 @@
+# Copyright 2026 Bytedance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import numpy as np
+import pytest
+import torch
+
+from verl.trainer.distillation.diagnostics import (
+    OpdDiagnosticsTracker,
+    SpecialTokenIds,
+    binary_auc,
+    build_future_gap_proposal_records,
+    compute_binned_event_rates,
+    compute_binned_token_means,
+    compute_bucket_denominator_metrics,
+    compute_coarse_token_stats,
+    compute_entropy_heatmap_row,
+    compute_gap_heatmap_row,
+    compute_gap_high_heatmap_row,
+    compute_intervention_boundary_diagnostics,
+    compute_intervention_metrics,
+    compute_opd_diagnostics_metrics,
+    compute_overlap_diagnostics,
+    compute_phase_and_special_token_metrics,
+    compute_repetition_advantage_metrics,
+    compute_rethinking_opd_diagnostics,
+    compute_teacher_logprob_nonfinite_heatmap_row,
+    compute_topk_ladder,
+    extract_response_topk_scores,
+    extract_sampled_response_logprobs,
+    positions_to_event_mask,
+    resolve_special_token_ids,
+)
+from verl.trainer.ppo.metric_utils import _response_length_tail_metrics
+from verl.workers.config import (
+    DistillationConfig,
+    DistillationDiagnosticsConfig,
+    DistillationLossConfig,
+    DistillationTeacherModelConfig,
+    RolloutConfig,
+)
+
+
+class _DummyQwenTokenizer:
+    eos_token_id = 151645
+
+    _token_to_id = {
+        "<|im_start|>": 151644,
+        "<|im_end|>": 151645,
+        "<|endoftext|>": 151643,
+        "<think>": 151667,
+        "</think>": 151668,
+        "<tool_call>": 151657,
+        "</tool_call>": 151658,
+    }
+
+    def convert_tokens_to_ids(self, token):
+        return self._token_to_id.get(token, -1)
+
+    def encode(self, text, add_special_tokens=False):
+        token_id = self._token_to_id.get(text)
+        return [] if token_id is None else [token_id]
+
+
+class _DummyDeepSeekStyleTokenizer:
+    bos_token_id = 1
+    eos_token_id = 2
+    pad_token_id = 2
+    bos_token = "<｜begin▁of▁sentence｜>"
+    eos_token = "<｜end▁of▁sentence｜>"
+    pad_token = "<｜end▁of▁sentence｜>"
+
+    _token_to_id = {
+        "<｜begin▁of▁sentence｜>": 1,
+        "<｜end▁of▁sentence｜>": 2,
+        "<｜User｜>": 10,
+        "<｜Assistant｜>": 11,
+        "<|EOT|>": 12,
+    }
+    _text_to_ids = {
+        "<think>": [101, 102],
+        "</think>": [103, 104],
+    }
+
+    def get_vocab(self):
+        return dict(self._token_to_id)
+
+    def convert_tokens_to_ids(self, token):
+        return self._token_to_id.get(token, -1)
+
+    def encode(self, text, add_special_tokens=False):
+        if text in self._text_to_ids:
+            return list(self._text_to_ids[text])
+        token_id = self._token_to_id.get(text)
+        return [] if token_id is None else [token_id]
+
+
+def test_compute_binned_token_means_respects_mask_on_cpu():
+    values = torch.tensor([[1.0, 2.0, 3.0, 4.0], [10.0, 20.0, 30.0, 40.0]])
+    mask = torch.tensor([[1, 1, 1, 0], [1, 0, 0, 0]], dtype=torch.bool)
+
+    metrics = compute_binned_token_means(values, mask, bin_size=2, prefix="opd/test_bin")
+
+    assert metrics["opd/test_bin/0000_0002"] == pytest.approx((1.0 + 2.0 + 10.0) / 3.0)
+    assert metrics["opd/test_bin/0002_0004"] == 3.0
+
+
+def test_compute_binned_event_rates_respects_mask_on_cpu():
+    event_mask = torch.tensor([[0, 1, 1, 1], [1, 0, 1, 0]], dtype=torch.bool)
+    response_mask = torch.tensor([[1, 1, 1, 0], [1, 0, 0, 0]], dtype=torch.bool)
+
+    metrics = compute_binned_event_rates(event_mask, response_mask, bin_size=2, prefix="opd/event_bin")
+
+    assert metrics["opd/event_bin/0000_0002"] == pytest.approx(2 / 3)
+    assert metrics["opd/event_bin/0002_0004"] == 1.0
+
+
+def test_resolve_special_token_ids_finds_qwen3_tokens_on_cpu():
+    special = resolve_special_token_ids(_DummyQwenTokenizer())
+
+    assert special.im_end == 151645
+    assert special.endoftext == 151643
+    assert special.think_start == 151667
+    assert special.think_end == 151668
+    assert special.think_start_sequence == (151667,)
+    assert special.think_end_sequence == (151668,)
+    assert 151645 in special.generation_stop_ids
+    assert 151657 in special.foreign_control_ids
+
+
+def test_resolve_special_token_ids_handles_deepseek_style_multitoken_think_on_cpu():
+    special = resolve_special_token_ids(_DummyDeepSeekStyleTokenizer())
+
+    assert special.endoftext == 2
+    assert special.eot == 12
+    assert special.user_role == 10
+    assert special.assistant_role == 11
+    assert special.bos == 1
+    assert special.think_start is None
+    assert special.think_end is None
+    assert special.think_start_sequence == (101, 102)
+    assert special.think_end_sequence == (103, 104)
+    assert (2,) in special.generation_stop_sequences
+    assert 10 in special.foreign_control_ids
+    assert 11 in special.foreign_control_ids
+
+
+def test_bucket_denominators_and_coarse_empty_denominator_on_cpu():
+    response_mask = torch.zeros((2, 20001), dtype=torch.bool)
+    response_mask[0, :512] = True
+    response_mask[1, :16000] = True
+
+    metrics = compute_bucket_denominator_metrics(response_mask, bin_size=512)
+
+    assert metrics["bucket/bin/0000_0512/token_count"] == 1024
+    assert metrics["bucket/bin/0000_0512/sample_count"] == 2
+    assert metrics["bucket/bin/0512_1024/token_count"] == 512
+    assert metrics["bucket/coarse/16k_20k/token_count"] == 0
+    assert metrics["bucket/coarse/16k_20k/sample_count"] == 0
+
+    values = torch.ones_like(response_mask, dtype=torch.float32)
+    coarse = compute_coarse_token_stats(values, response_mask, prefix="opd/test")
+
+    assert coarse["opd/test/coarse/16k_20k/token_count"] == 0
+    assert "opd/test/coarse/16k_20k/mean" not in coarse
+
+
+def test_response_length_tail_metrics_separates_nonclipped_main_mass_on_cpu():
+    lengths = torch.tensor([7000.0, 6800.0, 23552.0, 6900.0])
+
+    metrics = _response_length_tail_metrics(lengths, max_response_length=23552)
+
+    assert metrics["response_length/clipped_count"] == 1
+    assert metrics["response_length/nonclipped_count"] == 3
+    assert metrics["response_length/nonclipped_mean"] == pytest.approx((7000 + 6800 + 6900) / 3)
+    assert metrics["response_length/main_mass_mean"] == pytest.approx((7000 + 6800 + 6900) / 3)
+    assert metrics["response_length/clipped_token_share"] == pytest.approx(23552 / lengths.sum().item())
+    assert metrics["response_length/survival_gt_16k"] == pytest.approx(0.25)
+    assert metrics["response_length/clip_given_gt_16k"] == pytest.approx(1.0)
+
+
+def test_response_length_tail_metrics_omits_main_mass_when_all_clipped_on_cpu():
+    metrics = _response_length_tail_metrics(torch.tensor([512.0, 512.0]), max_response_length=512)
+
+    assert metrics["response_length/clipped_count"] == 2
+    assert metrics["response_length/nonclipped_count"] == 0
+    assert "response_length/main_mass_mean" not in metrics
+
+
+def test_phase_parser_handles_qwen_think_cases_and_loss_mask_on_cpu():
+    special = SpecialTokenIds(
+        im_end=151645,
+        endoftext=151643,
+        think_start=151667,
+        think_end=151668,
+        im_start=151644,
+        generation_stop_ids=(151645, 151643),
+    )
+    responses = torch.tensor(
+        [
+            [151667, 10, 151668, 20, 151645, 0],
+            [151667, 10, 11, 12, 13, 14],
+            [20, 151645, 21, 0, 0, 0],
+            [151668, 20, 151645, 0, 0, 0],
+            [151667, 10, 151668, 151667, 20, 0],
+        ]
+    )
+    response_mask = torch.tensor(
+        [
+            [1, 1, 1, 1, 1, 0],
+            [1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 0, 0, 0],
+            [1, 1, 1, 0, 0, 0],
+            [1, 1, 1, 1, 1, 0],
+        ],
+        dtype=torch.bool,
+    )
+
+    info = compute_phase_and_special_token_metrics(
+        response_ids=responses,
+        response_mask=response_mask,
+        special_token_ids=special,
+        max_response_length=6,
+    )
+
+    assert info.metrics["format/has_think_end_ratio"] == pytest.approx(3 / 5)
+    assert info.metrics["format/unclosed_think_ratio"] == pytest.approx(1 / 5)
+    assert info.metrics["format/think_end_without_think_start_ratio"] == pytest.approx(1 / 5)
+    assert info.metrics["format/think_reopened_after_think_end_ratio"] == pytest.approx(1 / 5)
+    assert info.metrics["format/clipped_without_think_end_ratio"] == pytest.approx(1 / 5)
+    assert info.metrics["loss_mask/generation_stop_included_count"] == 3
+    assert info.metrics["response_end/ended_by_generation_stop_count"] == 2
+    assert info.metrics["loss_mask/think_end_included_count"] == 3
+    assert info.thinking_mask[0, :3].all()
+    assert info.answering_mask[0, 3:5].all()
+
+
+def test_phase_parser_handles_deepseek_style_multitoken_think_on_cpu():
+    special = resolve_special_token_ids(_DummyDeepSeekStyleTokenizer())
+    responses = torch.tensor(
+        [
+            [101, 102, 9, 103, 104, 20, 2, 0],
+            [101, 102, 9, 12, 13, 14, 15, 16],
+            [20, 103, 104, 2, 0, 0, 0, 0],
+            [101, 102, 9, 103, 104, 101, 102, 2],
+        ]
+    )
+    response_mask = torch.tensor(
+        [
+            [1, 1, 1, 1, 1, 1, 1, 0],
+            [1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 1, 1, 0, 0, 0, 0],
+            [1, 1, 1, 1, 1, 1, 1, 1],
+        ],
+        dtype=torch.bool,
+    )
+
+    info = compute_phase_and_special_token_metrics(
+        response_ids=responses,
+        response_mask=response_mask,
+        special_token_ids=special,
+        max_response_length=8,
+    )
+
+    assert info.metrics["format/has_think_start_ratio"] == pytest.approx(3 / 4)
+    assert info.metrics["format/has_think_end_ratio"] == pytest.approx(3 / 4)
+    assert info.metrics["format/unclosed_think_ratio"] == pytest.approx(1 / 4)
+    assert info.metrics["format/think_end_without_think_start_ratio"] == pytest.approx(1 / 4)
+    assert info.metrics["format/think_reopened_after_think_end_ratio"] == pytest.approx(1 / 4)
+    assert info.metrics["response_end/ended_by_generation_stop_count"] == 3
+    assert info.thinking_mask[0, :5].all()
+    assert info.answering_mask[0, 5:7].all()
+
+
+def test_phase_parser_handles_noncontiguous_tool_masks_and_multiple_thinking_turns_on_cpu():
+    special = SpecialTokenIds(
+        im_end=151645,
+        endoftext=151643,
+        think_start=151667,
+        think_end=151668,
+        im_start=151644,
+        generation_stop_ids=(151645, 151643),
+    )
+    responses = torch.tensor([[151667, 10, 151668, 151644, 151667, 11, 151668, 20, 151645, 0]])
+    response_mask = torch.tensor([[1, 1, 1, 0, 1, 1, 1, 1, 1, 0]], dtype=torch.bool)
+    attention_mask = torch.tensor([[1, 1, 1, 1, 1, 1, 1, 1, 1, 0]], dtype=torch.bool)
+
+    info = compute_phase_and_special_token_metrics(
+        response_ids=responses,
+        response_mask=response_mask,
+        response_attention_mask=attention_mask,
+        special_token_ids=special,
+        max_response_length=10,
+        allow_multiple_thinking_blocks=True,
+    )
+
+    assert info.metrics["format/malformed_ratio"] == 0.0
+    assert info.metrics["format/generated_im_start_inside_response_ratio"] == 0.0
+    assert info.metrics["response_end/ended_by_generation_stop_count"] == 1.0
+    assert info.thinking_mask[0, :3].all()
+    assert info.thinking_mask[0, 4:7].all()
+    assert info.answering_mask[0, 7:9].all()
+    assert not info.thinking_mask[0, 3]
+
+
+def test_phase_parser_uses_teacher_assistant_spans_for_repaired_thinking_structure_on_cpu():
+    special = SpecialTokenIds(
+        im_end=151645,
+        endoftext=151643,
+        think_start=151667,
+        think_end=151668,
+        im_start=151644,
+        generation_stop_ids=(151645, 151643),
+    )
+    responses = torch.tensor([[151667, 10, 151668, 151644, 151667, 11, 151668, 20, 151645]])
+    response_mask = torch.tensor([[1, 1, 0, 0, 1, 1, 1, 1, 1]], dtype=torch.bool)
+    attention_mask = torch.ones_like(response_mask)
+    spans = [
+        [
+            {"kind": "assistant", "source": "student", "start": 0, "end": 2},
+            {"kind": "assistant", "source": "teacher", "start": 2, "end": 3},
+            {"kind": "tool_observation", "start": 3, "end": 4},
+            {"kind": "assistant", "source": "student", "start": 4, "end": 9},
+        ]
+    ]
+
+    info = compute_phase_and_special_token_metrics(
+        response_ids=responses,
+        response_mask=response_mask,
+        response_attention_mask=attention_mask,
+        special_token_ids=special,
+        max_response_length=9,
+        allow_multiple_thinking_blocks=True,
+        trajectory_spans=spans,
+    )
+
+    assert info.metrics["format/malformed_ratio"] == 0.0
+    assert info.thinking_mask[0, :2].all()
+    assert not info.thinking_mask[0, 2]
+    assert info.thinking_mask[0, 4:7].all()
+
+
+def test_distillation_diagnostics_bad_tail_threshold_validation_on_cpu():
+    config = DistillationDiagnosticsConfig(
+        bad_tail_min_position=4,
+        bad_tail_deep_position=8,
+        bad_tail_extreme_position=12,
+        bad_tail_overlap_threshold=0.25,
+    )
+
+    assert config.bad_tail_min_position == 4
+    assert config.bad_tail_overlap_threshold == 0.25
+    with pytest.raises(ValueError, match="bad_tail_deep_position"):
+        DistillationDiagnosticsConfig(bad_tail_min_position=8, bad_tail_deep_position=4)
+    with pytest.raises(ValueError, match="topk_log_interval"):
+        DistillationDiagnosticsConfig(topk_log_interval=0)
+    for async_max_pending in (-1, 0, 2):
+        with pytest.raises(ValueError, match="async_max_pending"):
+            DistillationDiagnosticsConfig(async_max_pending=async_max_pending)
+    with pytest.raises(ValueError, match="repetition_tail_chars"):
+        DistillationDiagnosticsConfig(repetition_tail_chars=0)
+    with pytest.raises(ValueError, match="repetition_tail_token_window"):
+        DistillationDiagnosticsConfig(repetition_tail_token_window=0)
+    with pytest.raises(ValueError, match="repetition_comp_ratio_threshold"):
+        DistillationDiagnosticsConfig(repetition_comp_ratio_threshold=float("nan"))
+
+
+def test_distillation_overlap_diagnostics_topk_defaults_to_loss_topk_on_cpu():
+    config = DistillationConfig(
+        enabled=True,
+        n_gpus_per_node=1,
+        nnodes=1,
+        distillation_loss=DistillationLossConfig(loss_mode="k3", topk=64),
+        diagnostics=DistillationDiagnosticsConfig(collect_topk_overlap=True, topk=None),
+        teacher_models={
+            "teacher_model": DistillationTeacherModelConfig(
+                key="teacher",
+                model_path="dummy",
+                num_replicas=1,
+                inference=RolloutConfig(
+                    name="vllm",
+                    prompt_length=4,
+                    response_length=8,
+                    tensor_model_parallel_size=1,
+                    data_parallel_size=1,
+                    pipeline_model_parallel_size=1,
+                    engine_kwargs={"vllm": {}},
+                ),
+            )
+        },
+    )
+
+    teacher_config = next(iter(config.teacher_models.values()))
+    assert config.diagnostics.topk == 64
+    assert teacher_config.inference.engine_kwargs["vllm"]["max_logprobs"] == 64
+
+
+def test_distillation_rethinking_opd_diagnostics_requests_teacher_topk_on_cpu():
+    config = DistillationConfig(
+        enabled=True,
+        n_gpus_per_node=1,
+        nnodes=1,
+        distillation_loss=DistillationLossConfig(loss_mode="k1", topk=16),
+        diagnostics=DistillationDiagnosticsConfig(
+            collect_topk_overlap=False,
+            collect_rethinking_opd_metrics=True,
+            topk=16,
+        ),
+        teacher_models={
+            "teacher_model": DistillationTeacherModelConfig(
+                key="teacher",
+                model_path="dummy",
+                num_replicas=1,
+                inference=RolloutConfig(
+                    name="vllm",
+                    prompt_length=4,
+                    response_length=8,
+                    tensor_model_parallel_size=1,
+                    data_parallel_size=1,
+                    pipeline_model_parallel_size=1,
+                    engine_kwargs={"vllm": {}},
+                ),
+            )
+        },
+    )
+
+    teacher_config = next(iter(config.teacher_models.values()))
+    assert teacher_config.inference.engine_kwargs["vllm"]["max_logprobs"] == 16
+
+
+def test_only_stu_teacher_topk_expands_teacher_backend_without_expanding_diagnostics_on_cpu():
+    config = DistillationConfig(
+        enabled=True,
+        use_actor_loss=False,
+        n_gpus_per_node=1,
+        nnodes=1,
+        distillation_loss=DistillationLossConfig(
+            loss_mode="k1",
+            topk=16,
+            teacher_topk=128,
+            top_k_strategy="only_stu_teacher_topk",
+        ),
+        diagnostics=DistillationDiagnosticsConfig(
+            collect_topk_overlap=True,
+            collect_rethinking_opd_metrics=True,
+            topk=16,
+        ),
+        teacher_models={
+            "teacher_model": DistillationTeacherModelConfig(
+                key="teacher",
+                model_path="dummy",
+                num_replicas=1,
+                inference=RolloutConfig(
+                    name="vllm",
+                    prompt_length=4,
+                    response_length=8,
+                    tensor_model_parallel_size=1,
+                    data_parallel_size=1,
+                    pipeline_model_parallel_size=1,
+                    engine_kwargs={"vllm": {}},
+                ),
+            )
+        },
+    )
+
+    teacher_config = next(iter(config.teacher_models.values()))
+    assert config.diagnostics.topk == 16
+    assert teacher_config.inference.engine_kwargs["vllm"]["max_logprobs"] == 128
+
+
+def test_compute_opd_diagnostics_metrics_logs_late_gap_and_entropy_on_cpu():
+    student_logprobs = torch.tensor([[-1.0, -1.0, -1.0, -1.0], [-1.0, -1.0, -1.0, -1.0]])
+    teacher_logprobs = torch.tensor([[-1.1, -1.1, -3.0, -3.0], [-1.0, -1.0, -1.0, -1.0]])
+    entropy = torch.tensor([[0.1, 0.2, 1.2, 1.4], [0.2, 0.2, 0.3, 0.3]])
+    response_mask = torch.tensor([[1, 1, 1, 1], [1, 1, 0, 0]], dtype=torch.bool)
+    rm_scores = torch.tensor([[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 0.0]])
+
+    metrics = compute_opd_diagnostics_metrics(
+        student_logprobs=student_logprobs,
+        teacher_logprobs=teacher_logprobs,
+        teacher_logprob_nonfinite_positions=[[2, 3], [1]],
+        entropy=entropy,
+        response_mask=response_mask,
+        rm_scores=rm_scores,
+        bin_size=2,
+        high_gap_threshold=1.0,
+    )
+
+    assert metrics["opd/response_len/mean"] == 3.0
+    assert metrics["opd/gap_abs_bin/0000_0002"] < metrics["opd/gap_abs_bin/0002_0004"]
+    assert metrics["opd/entropy/tail_minus_head"] > 0
+    assert metrics["opd/gap_abs/high_fraction"] == pytest.approx(2 / 6)
+    assert metrics["opd/gap_abs/high_token_fraction"] == pytest.approx(2 / 6)
+    assert metrics["opd/gap_abs/high_sample_fraction"] == pytest.approx(0.5)
+    assert metrics["opd/gap_abs/high_count_mean"] == pytest.approx(1.0)
+    assert metrics["opd/gap_abs/high_count_max"] == pytest.approx(2.0)
+    assert metrics["opd/gap_abs/high_first_position_mean"] == pytest.approx(2.0)
+    assert metrics["opd/gap_abs/high_first_position_frac_mean"] == pytest.approx(0.5)
+    assert metrics["opd/gap_abs/high_bin/0000_0002"] == 0.0
+    assert metrics["opd/gap_abs/high_bin/0002_0004"] == 1.0
+    assert metrics["opd/teacher_logprob_nonfinite/response_token_fraction"] == pytest.approx(3 / 6)
+    assert metrics["opd/teacher_logprob_nonfinite/sample_fraction"] == pytest.approx(1.0)
+    assert metrics["opd/teacher_logprob_nonfinite/count_mean"] == pytest.approx(1.5)
+    assert metrics["opd/teacher_logprob_nonfinite/count_max"] == pytest.approx(2.0)
+    assert metrics["opd/teacher_logprob_nonfinite/first_position_mean"] == pytest.approx(1.5)
+    assert metrics["opd/teacher_logprob_nonfinite/first_position_frac_mean"] == pytest.approx(0.5)
+    assert metrics["opd/teacher_logprob_nonfinite_bin/0000_0002"] == pytest.approx(1 / 4)
+    assert metrics["opd/teacher_logprob_nonfinite_bin/0002_0004"] == 1.0
+    assert "opd/reward/correct_auc" in metrics
+
+
+def test_compute_opd_diagnostics_excludes_impossible_positive_logprobs_on_cpu():
+    metrics = compute_opd_diagnostics_metrics(
+        student_logprobs=torch.tensor([[5.0, -1.0]]),
+        teacher_logprobs=torch.tensor([[-1.0, -1.5]]),
+        response_mask=torch.ones((1, 2), dtype=torch.bool),
+        bin_size=2,
+    )
+
+    assert metrics["distillation/student_logprob/positive_token_fraction"] == pytest.approx(0.5)
+    assert metrics["distillation/student_sampled_prob/mean"] == pytest.approx(torch.exp(torch.tensor(-1.0)).item())
+    assert metrics["opd/gap_abs/outlier_token_fraction"] == pytest.approx(0.5)
+    assert metrics["opd/gap_abs/mean"] == pytest.approx(0.5)
+
+
+def test_compute_opd_diagnostics_metrics_logs_repetition_token_zlib_and_advantage_on_cpu():
+    response_ids = torch.tensor(
+        [
+            [7] * 16,
+            [((idx * 1103515245 + 12345) % 50000) for idx in range(16)],
+            [9, 9, 9, 9] + [0] * 12,
+        ],
+        dtype=torch.long,
+    )
+    response_mask = torch.tensor(
+        [
+            [1] * 16,
+            [1] * 16,
+            [1, 1, 1, 1] + [0] * 12,
+        ],
+        dtype=torch.bool,
+    )
+    student_logprobs = torch.full((3, 16), -2.0)
+    teacher_logprobs = torch.full((3, 16), -2.2)
+    teacher_logprobs[0, 8:16] = -0.5
+
+    metrics = compute_opd_diagnostics_metrics(
+        student_logprobs=student_logprobs,
+        teacher_logprobs=teacher_logprobs,
+        response_ids=response_ids,
+        response_mask=response_mask,
+        bin_size=4,
+        max_response_length=16,
+        repetition_tail_token_window=8,
+        repetition_comp_ratio_threshold=4.0,
+    )
+
+    assert metrics["rollout/repetition_rate_token_zlib"] == pytest.approx(1 / 3)
+    assert metrics["rollout/repetition_eligible_rate_token_zlib"] == pytest.approx(2 / 3)
+    assert metrics["rollout/truncation_rate"] == pytest.approx(2 / 3)
+    assert metrics["rollout/truncation_repetition_joint_rate"] == pytest.approx(1 / 3)
+    assert metrics["opd/repetition/token_fraction"] == pytest.approx(8 / 36)
+    assert metrics["opd/repetition/advantage_mean"] == pytest.approx(1.5)
+    assert metrics["opd/nonrepetition/advantage_mean"] == pytest.approx(-0.2)
+    assert metrics["opd/repetition/advantage_ratio"] == pytest.approx(-7.5)
+    assert metrics["opd/repetition/teacher_logprob_mean"] == pytest.approx(-0.5)
+    assert metrics["opd/repetition/student_logprob_mean"] == pytest.approx(-2.0)
+
+
+def test_compute_opd_diagnostics_metrics_uses_text_zlib_flags_for_repetition_advantage_on_cpu():
+    response_ids = torch.tensor(
+        [
+            [10, 11, 12, 13, 14, 15, 16, 17],
+            [20, 21, 22, 23, 24, 25, 26, 27],
+        ],
+        dtype=torch.long,
+    )
+    response_mask = torch.ones((2, 8), dtype=torch.bool)
+    student_logprobs = torch.full((2, 8), -2.0)
+    teacher_logprobs = torch.tensor(
+        [
+            [-1.0] * 8,
+            [-3.0] * 8,
+        ]
+    )
+
+    metrics = compute_opd_diagnostics_metrics(
+        student_logprobs=student_logprobs,
+        teacher_logprobs=teacher_logprobs,
+        response_ids=response_ids,
+        response_texts=[
+            "abc123" * 100,
+            "".join(f"{idx:04x}" for idx in range(100)),
+        ],
+        response_mask=response_mask,
+        bin_size=4,
+        max_response_length=8,
+        collect_train_text_zlib_repetition=True,
+        repetition_tail_chars=128,
+        repetition_comp_ratio_threshold=4.0,
+        repetition_tail_token_window=16,
+    )
+
+    assert metrics["rollout/repetition_rate_token_zlib"] == 0.0
+    assert metrics["rollout/repetition_rate_zlib"] == pytest.approx(0.5)
+    assert metrics["rollout/truncation_repetition_joint_rate"] == pytest.approx(0.5)
+    assert metrics["opd/repetition/token_fraction"] == pytest.approx(0.5)
+    assert metrics["opd/repetition/advantage_mean"] == pytest.approx(1.0)
+    assert metrics["opd/nonrepetition/advantage_mean"] == pytest.approx(-1.0)
+    assert metrics["opd/repetition/advantage_ratio"] == pytest.approx(-1.0)
+
+
+def test_repetition_advantage_metrics_handles_empty_groups_on_cpu():
+    response_mask = torch.tensor([[1, 1, 0], [1, 1, 0]], dtype=torch.bool)
+    repetition_tail_mask = torch.tensor([[1, 1, 0], [1, 1, 0]], dtype=torch.bool)
+    student_logprobs = torch.tensor([[-2.0, -2.0, 0.0], [-2.0, -2.0, 0.0]])
+    teacher_logprobs = torch.tensor([[-1.0, -3.0, 0.0], [-1.5, -2.5, 0.0]])
+
+    metrics = compute_repetition_advantage_metrics(
+        repetition_tail_mask=repetition_tail_mask,
+        response_mask=response_mask,
+        student_logprobs=student_logprobs,
+        teacher_logprobs=teacher_logprobs,
+    )
+
+    assert metrics["opd/repetition/token_fraction"] == 1.0
+    assert "opd/nonrepetition/advantage_mean" not in metrics
+    assert "opd/repetition/advantage_ratio" not in metrics
+    assert metrics["opd/repetition/advantage_mass_share"] == pytest.approx(1.0)
+
+    empty_metrics = compute_repetition_advantage_metrics(
+        repetition_tail_mask=torch.zeros_like(repetition_tail_mask),
+        response_mask=torch.zeros_like(response_mask),
+        student_logprobs=student_logprobs,
+        teacher_logprobs=teacher_logprobs,
+    )
+    assert empty_metrics == {}
+
+    with pytest.raises(ValueError, match="must align"):
+        compute_repetition_advantage_metrics(
+            repetition_tail_mask=repetition_tail_mask[:, :2],
+            response_mask=response_mask,
+            student_logprobs=student_logprobs,
+            teacher_logprobs=teacher_logprobs,
+        )
+
+
+def test_positions_to_event_mask_handles_missing_positions_on_cpu():
+    response_mask = torch.tensor([[1, 1, 0], [1, 0, 0]], dtype=torch.bool)
+
+    event_mask = positions_to_event_mask(None, response_mask, context="teacher_logprob_nonfinite")
+    assert not event_mask.any()
+
+    event_mask = positions_to_event_mask([[1, 2], []], response_mask, context="teacher_logprob_nonfinite")
+    torch.testing.assert_close(event_mask, torch.tensor([[0, 1, 0], [0, 0, 0]], dtype=torch.bool))
+
+    with pytest.raises(ValueError, match="outside response width"):
+        positions_to_event_mask([[3], []], response_mask, context="teacher_logprob_nonfinite")
+
+
+def test_binary_auc_handles_ties_and_single_class_on_cpu():
+    assert binary_auc(torch.tensor([0.0, 1.0]), torch.tensor([False, True])) == 1.0
+    assert binary_auc(torch.tensor([0.0, 1.0]), torch.tensor([True, True])) is None
+    assert binary_auc(torch.tensor([1.0, 1.0]), torch.tensor([False, True])) == 0.5
+
+
+def test_compute_entropy_heatmap_row_and_tracker_on_cpu():
+    entropy = torch.tensor([[0.0, 2.0, 4.0, 6.0]])
+    response_mask = torch.tensor([[1, 1, 1, 0]], dtype=torch.bool)
+
+    row = compute_entropy_heatmap_row(entropy, response_mask, bin_size=2)
+    np.testing.assert_allclose(row, np.array([1.0, 4.0], dtype=np.float32))
+
+    tracker = OpdDiagnosticsTracker(history_steps=2, bin_size=2)
+    tracker.add_entropy_row(1, row)
+    tracker.add_entropy_row(2, np.array([2.0, 3.0, 4.0], dtype=np.float32))
+    tracker.add_entropy_row(3, np.array([5.0], dtype=np.float32))
+
+    assert list(tracker.steps) == [2, 3]
+    fig = tracker.render_entropy_heatmap()
+    if fig is not None:
+        fig.clear()
+
+
+def test_opd_heatmap_caps_wide_long_sequence_figures_and_ticks_on_cpu():
+    tracker = OpdDiagnosticsTracker(history_steps=80, bin_size=128)
+    for step in range(80):
+        tracker.add_entropy_row(step, np.arange(184, dtype=np.float32))
+
+    fig = tracker.render_entropy_heatmap()
+    if fig is None:
+        pytest.skip("matplotlib is not installed")
+
+    width, height = fig.get_size_inches()
+    assert width <= 24
+    assert height <= 18
+    assert len(fig.axes[0].get_xticks()) <= 16
+    fig.clear()
+
+
+def test_opd_diagnostics_filters_sentinel_outliers_on_cpu():
+    student_logprobs = torch.tensor([[-1.0, -1.0, -1.0, -1.0]])
+    teacher_logprobs = torch.tensor([[-1.2, -1.0e38, -2.0, -3.0]])
+    entropy = torch.tensor([[0.1, 1.0e38, 0.3, 0.5]])
+    response_mask = torch.ones((1, 4), dtype=torch.bool)
+
+    metrics = compute_opd_diagnostics_metrics(
+        student_logprobs=student_logprobs,
+        teacher_logprobs=teacher_logprobs,
+        entropy=entropy,
+        response_mask=response_mask,
+        bin_size=2,
+        high_gap_threshold=0.5,
+    )
+
+    assert metrics["opd/gap_abs/outlier_token_fraction"] == pytest.approx(1 / 4)
+    assert metrics["opd/gap_abs/mean"] == pytest.approx((0.2 + 1.0 + 2.0) / 3)
+    assert metrics["opd/gap_abs_bin/0000_0002"] == pytest.approx(0.2)
+    assert metrics["opd/gap_abs_bin/0002_0004"] == pytest.approx(1.5)
+    assert metrics["opd/gap_abs/high_bin/0000_0002"] == pytest.approx(0.0)
+    assert metrics["opd/gap_abs/high_bin/0002_0004"] == pytest.approx(1.0)
+    assert metrics["opd/entropy/outlier_token_fraction"] == pytest.approx(1 / 4)
+    assert metrics["opd/entropy/mean"] == pytest.approx((0.1 + 0.3 + 0.5) / 3)
+
+    entropy_row = compute_entropy_heatmap_row(entropy, response_mask, bin_size=2)
+    gap_row = compute_gap_heatmap_row(
+        student_logprobs=student_logprobs,
+        teacher_logprobs=teacher_logprobs,
+        response_mask=response_mask,
+        bin_size=2,
+    )
+    high_gap_row = compute_gap_high_heatmap_row(
+        student_logprobs=student_logprobs,
+        teacher_logprobs=teacher_logprobs,
+        response_mask=response_mask,
+        bin_size=2,
+        high_gap_threshold=0.5,
+    )
+
+    np.testing.assert_allclose(entropy_row, np.array([0.1, 0.4], dtype=np.float32))
+    np.testing.assert_allclose(gap_row, np.array([0.2, 1.5], dtype=np.float32), rtol=1e-6)
+    np.testing.assert_allclose(high_gap_row, np.array([0.0, 1.0], dtype=np.float32))
+
+
+def test_compute_gap_heatmap_row_and_tracker_on_cpu():
+    student_logprobs = torch.tensor([[-1.0, -1.0, -1.0, -1.0]])
+    teacher_logprobs = torch.tensor([[[-1.0], [-2.0], [-3.0], [-5.0]]])
+    response_mask = torch.tensor([[1, 1, 1, 0]], dtype=torch.bool)
+
+    row = compute_gap_heatmap_row(
+        student_logprobs=student_logprobs,
+        teacher_logprobs=teacher_logprobs,
+        response_mask=response_mask,
+        bin_size=2,
+    )
+    np.testing.assert_allclose(row, np.array([0.5, 2.0], dtype=np.float32))
+
+    tracker = OpdDiagnosticsTracker(history_steps=2, bin_size=2)
+    tracker.add_gap_row(1, row)
+    fig = tracker.render_gap_heatmap()
+    if fig is not None:
+        fig.clear()
+
+
+def test_compute_event_heatmap_rows_on_cpu():
+    student_logprobs = torch.tensor([[-1.0, -1.0, -1.0, -1.0], [-1.0, -1.0, -1.0, -1.0]])
+    teacher_logprobs = torch.tensor([[-1.0, -3.0, -1.0, -4.0], [-1.0, -1.0, -1.0, -1.0]])
+    response_mask = torch.tensor([[1, 1, 1, 1], [1, 1, 0, 0]], dtype=torch.bool)
+
+    high_gap_row = compute_gap_high_heatmap_row(
+        student_logprobs=student_logprobs,
+        teacher_logprobs=teacher_logprobs,
+        response_mask=response_mask,
+        bin_size=2,
+        high_gap_threshold=1.0,
+    )
+    np.testing.assert_allclose(high_gap_row, np.array([1 / 4, 0.5], dtype=np.float32))
+
+    nonfinite_row = compute_teacher_logprob_nonfinite_heatmap_row(
+        teacher_logprob_nonfinite_positions=[[1, 3], []],
+        response_mask=response_mask,
+        bin_size=2,
+    )
+    np.testing.assert_allclose(nonfinite_row, np.array([1 / 4, 0.5], dtype=np.float32))
+
+    tracker = OpdDiagnosticsTracker(history_steps=2, bin_size=2)
+    tracker.add_gap_high_row(1, high_gap_row)
+    tracker.add_teacher_logprob_nonfinite_row(2, nonfinite_row)
+    fig = tracker.render_gap_high_heatmap()
+    if fig is not None:
+        fig.clear()
+    fig = tracker.render_teacher_logprob_nonfinite_heatmap()
+    if fig is not None:
+        fig.clear()
+
+
+def test_compute_topk_ladder_on_cpu():
+    assert compute_topk_ladder(64) == [1, 2, 4, 8, 16, 32, 64]
+    assert compute_topk_ladder(20) == [1, 2, 4, 8, 16, 20]
+
+
+def test_compute_overlap_diagnostics_topk_rates_and_sampled_prob_on_cpu():
+    response_ids = torch.tensor([[10, 11, 12, 13], [20, 21, 22, 23]])
+    response_mask = torch.tensor([[1, 1, 1, 0], [1, 1, 0, 0]], dtype=torch.bool)
+    teacher_topk_ids = torch.tensor(
+        [
+            [[10, 99, 98, 97], [99, 11, 98, 97], [99, 98, 97, 12], [13, 99, 98, 97]],
+            [[99, 98, 20, 97], [99, 98, 97, 96], [22, 99, 98, 97], [23, 99, 98, 97]],
+        ]
+    )
+    teacher_topk_logprobs = torch.log(
+        torch.tensor(
+            [
+                [[0.5, 0.2, 0.1, 0.05], [0.4, 0.3, 0.1, 0.05], [0.4, 0.2, 0.1, 0.05], [0.5, 0.2, 0.1, 0.05]],
+                [[0.4, 0.2, 0.1, 0.05], [0.4, 0.2, 0.1, 0.05], [0.5, 0.2, 0.1, 0.05], [0.5, 0.2, 0.1, 0.05]],
+            ]
+        )
+    )
+    sampled_teacher_logprobs = torch.log(torch.tensor([[0.50, 0.30, 0.05, 0.50], [0.01, 0.02, 0.50, 0.50]]))
+
+    metrics = compute_overlap_diagnostics(
+        response_ids=response_ids,
+        response_mask=response_mask,
+        teacher_topk_ids=teacher_topk_ids,
+        teacher_topk_logprobs=teacher_topk_logprobs,
+        sampled_teacher_logprobs=sampled_teacher_logprobs,
+        bin_size=2,
+        topk=4,
+    )
+
+    assert metrics["opd/overlap/top1_rate"] == pytest.approx(1 / 5)
+    assert metrics["opd/overlap/top2_rate"] == pytest.approx(2 / 5)
+    assert metrics["opd/overlap/top4_rate"] == pytest.approx(4 / 5)
+    assert metrics["opd/overlap/top4_bin/0000_0002"] == pytest.approx(3 / 4)
+    assert metrics["opd/overlap/top4_bin/0002_0004"] == 1.0
+    assert metrics["opd/overlap/top4/head_mean"] == pytest.approx(3 / 4)
+    assert metrics["opd/overlap/top4/tail_mean"] == 1.0
+    assert metrics["opd/overlap/teacher_sampled_prob_mean"] == pytest.approx((0.50 + 0.30 + 0.05 + 0.01 + 0.02) / 5)
+    assert metrics["opd/overlap/teacher_sampled_prob_p50"] == pytest.approx(0.05)
+    assert metrics["opd/overlap/teacher_topk_mass_mean"] == pytest.approx(0.79)
+
+
+def test_compute_overlap_diagnostics_skips_unavailable_k_on_cpu():
+    response_ids = torch.tensor([[3, 4, 5]])
+    response_mask = torch.tensor([[1, 1, 0]], dtype=torch.bool)
+    teacher_topk_ids = torch.tensor([[[3, 9], [9, 4], [5, 9]]])
+    teacher_topk_logprobs = torch.log(torch.tensor([[[0.6, 0.2], [0.6, 0.2], [0.6, 0.2]]]))
+
+    metrics = compute_overlap_diagnostics(
+        response_ids=response_ids,
+        response_mask=response_mask,
+        teacher_topk_ids=teacher_topk_ids,
+        teacher_topk_logprobs=teacher_topk_logprobs,
+        sampled_teacher_logprobs=torch.log(torch.tensor([[0.6, 0.01, 0.6]])),
+        bin_size=2,
+        topk=4,
+    )
+
+    assert metrics["opd/overlap/top1_rate"] == 0.5
+    assert metrics["opd/overlap/top2_rate"] == 1.0
+    assert "opd/overlap/top4_rate" not in metrics
+    assert metrics["opd/overlap/teacher_sampled_prob_mean"] == pytest.approx((0.6 + 0.01) / 2)
+
+
+def test_compute_rethinking_opd_diagnostics_logs_support_intersection_metrics_on_cpu():
+    response_mask = torch.tensor([[1, 1]], dtype=torch.bool)
+    student_topk_ids = torch.tensor([[[1, 2, 3, 4], [10, 11, 12, 13]]])
+    teacher_topk_ids = torch.tensor([[[2, 3, 5, 6], [14, 15, 16, 17]]])
+    student_topk_logprobs = torch.log(torch.tensor([[[0.40, 0.30, 0.20, 0.05], [0.40, 0.30, 0.20, 0.05]]]))
+    teacher_topk_logprobs = torch.log(torch.tensor([[[0.50, 0.25, 0.10, 0.05], [0.50, 0.25, 0.10, 0.05]]]))
+
+    metrics = compute_rethinking_opd_diagnostics(
+        response_mask=response_mask,
+        student_topk_ids=student_topk_ids,
+        student_topk_logprobs=student_topk_logprobs,
+        teacher_topk_ids=teacher_topk_ids,
+        teacher_topk_logprobs=teacher_topk_logprobs,
+        bin_size=1,
+        topk=4,
+    )
+
+    expected_advantage = (0.6 * np.log((2 / 3) / 0.6) + 0.4 * np.log((1 / 3) / 0.4)) / 2
+    assert metrics["distillation/overlap_ratio"] == pytest.approx(0.25)
+    assert metrics["distillation/overlap_mass_student"] == pytest.approx(0.25)
+    assert metrics["distillation/overlap_mass_teacher"] == pytest.approx(0.375)
+    assert metrics["distillation/empty_overlap_fraction"] == pytest.approx(0.5)
+    assert metrics["distillation/overlap_token_advantage"] == pytest.approx(expected_advantage, rel=1e-5)
+    assert "distillation/entropy_gap" in metrics
+    assert metrics["distillation/entropy_gap_residual_bucket_approximation"] == 1.0
+    assert metrics["distillation/overlap_ratio_top1"] == pytest.approx(0.0)
+
+
+def test_extract_response_topk_scores_from_padded_teacher_scoring_on_cpu():
+    response_mask = torch.tensor([[1, 1, 1, 0]], dtype=torch.bool)
+    sequence_ids = torch.arange(12).reshape(1, 6, 2)
+    sequence_logprobs = torch.arange(12, dtype=torch.float32).reshape(1, 6, 2)
+
+    response_ids, response_logprobs = extract_response_topk_scores(
+        sequence_ids=sequence_ids,
+        sequence_logprobs=sequence_logprobs,
+        response_mask=response_mask,
+        prompt_width=3,
+        context="teacher_logprobs",
+    )
+
+    torch.testing.assert_close(response_ids, sequence_ids[:, 2:6])
+    torch.testing.assert_close(response_logprobs, sequence_logprobs[:, 2:6])
+
+
+def test_extract_sampled_response_logprobs_from_padded_teacher_scoring_on_cpu():
+    response_mask = torch.tensor([[1, 1, 1, 0]], dtype=torch.bool)
+    sequence_logprobs = torch.tensor([[0.0, -0.1, -1.0, -2.0, -3.0, 0.0]]).unsqueeze(-1)
+
+    response_logprobs = extract_sampled_response_logprobs(
+        sequence_logprobs=sequence_logprobs,
+        response_mask=response_mask,
+        prompt_width=3,
+        context="teacher_logprobs",
+    )
+
+    assert response_logprobs is not None
+    torch.testing.assert_close(response_logprobs, torch.tensor([[-1.0, -2.0, -3.0, 0.0]]))
+
+
+def test_extract_sampled_response_logprobs_skips_topk_and_errors_on_short_sequence_on_cpu():
+    response_mask = torch.tensor([[1, 1]], dtype=torch.bool)
+    topk_logprobs = torch.zeros((1, 4, 2))
+
+    assert (
+        extract_sampled_response_logprobs(
+            sequence_logprobs=topk_logprobs,
+            response_mask=response_mask,
+            prompt_width=2,
+            context="teacher_logprobs",
+        )
+        is None
+    )
+
+    with pytest.raises(RuntimeError, match="Cannot align teacher_logprobs"):
+        extract_sampled_response_logprobs(
+            sequence_logprobs=torch.zeros((1, 3, 1)),
+            response_mask=response_mask,
+            prompt_width=3,
+            context="teacher_logprobs",
+        )
+
+
+def test_compute_intervention_metrics_on_cpu():
+    counts = [0, 2]
+    interventions = [
+        [],
+        [
+            {
+                "start": 4,
+                "score": 1.5,
+                "teacher_tokens": 2,
+                "student_suffix_tokens": 8,
+                "rewrite_exact_position_overlap": 0.5,
+                "rewrite_lcs_ratio": 0.75,
+                "rewrite_length_ratio": 1.0,
+                "teacher_rejection_persistence_score": 1.25,
+                "teacher_rejection_persistence_tokens": 64,
+            },
+            {
+                "start": 16,
+                "score": 2.0,
+                "teacher_tokens": 2,
+                "student_suffix_tokens": 4,
+                "original_student_segment_ids": [1, 2, 3],
+                "teacher_segment_ids": [2, 3],
+            },
+        ],
+    ]
+    skipped = [
+        [],
+        [{"reason": "insufficient_trainable_tokens", "attempt": 0, "candidate_trainable_tokens": 0}],
+    ]
+    response_mask = torch.ones((2, 20), dtype=torch.bool)
+
+    metrics = compute_intervention_metrics(
+        intervention_counts=counts,
+        interventions=interventions,
+        intervention_skipped=skipped,
+        response_mask=response_mask,
+    )
+
+    assert metrics["opd_intervention/rate"] == 0.5
+    assert metrics["opd_intervention/count_mean"] == 1.0
+    assert metrics["opd_intervention/teacher_token_fraction"] == 4 / 40
+    assert metrics["opd_intervention/student_suffix_token_fraction"] == 12 / 40
+    assert metrics["opd_intervention/first_position_mean"] == 4
+    assert metrics["opd_intervention/zero_trainable_sample_fraction"] == 0.0
+    assert metrics["opd_intervention/trainable_token_fraction"] == 1.0
+    assert metrics["opd_intervention/skipped_count_mean"] == 0.5
+    assert metrics["opd_intervention/skipped_count_max"] == 1.0
+    assert metrics["opd_intervention/skipped_sample_fraction"] == 0.5
+    assert metrics["opd_intervention/skipped_reason/insufficient_trainable_tokens"] == 1.0
+    assert metrics["opd_intervention/rewrite_exact_position_overlap_mean"] == pytest.approx(0.25)
+    assert metrics["opd_intervention/rewrite_lcs_ratio_mean"] == pytest.approx((0.75 + 2 / 3) / 2)
+    assert metrics["opd_intervention/rewrite_length_ratio_mean"] == pytest.approx((1.0 + 2 / 3) / 2)
+    assert metrics["opd_intervention/persistence/score_mean"] == pytest.approx(1.25)
+    assert metrics["opd_intervention/persistence/score_min"] == pytest.approx(1.25)
+    assert metrics["opd_intervention/persistence/valid_tokens_mean"] == pytest.approx(64.0)
+
+
+def test_compute_intervention_metrics_counts_zero_trainable_samples_on_cpu():
+    response_mask = torch.tensor([[0, 0, 0], [1, 0, 0]], dtype=torch.bool)
+
+    metrics = compute_intervention_metrics(
+        intervention_counts=[0, 0],
+        interventions=[[], []],
+        intervention_skipped=[[], []],
+        response_mask=response_mask,
+    )
+
+    assert metrics["opd_intervention/zero_trainable_sample_fraction"] == 0.5
+    assert metrics["opd_intervention/trainable_token_fraction"] == 1 / 6
+
+
+def test_compute_intervention_metrics_aggregates_prune_future_and_outcome_strata_on_cpu():
+    interventions = [
+        [
+            {
+                "start": 2,
+                "teacher_tokens": 2,
+                "student_suffix_tokens": 12,
+                "prune_future_cutoff": 8,
+                "prune_future_horizon_tokens": 4,
+                "prune_future_retained_fraction": 0.5,
+                "prune_future_no_cut": False,
+                "prune_future_persistent_bad": True,
+                "prune_future_evaluated_blocks": 3,
+                "prune_future_bad_blocks": 2,
+                "prune_future_unavailable_blocks": 1,
+                "transition": "pre_wrong_post_correct",
+            }
+        ],
+        [
+            {
+                "start": 1,
+                "teacher_tokens": 1,
+                "student_suffix_tokens": 8,
+                "prune_future_cutoff": 10,
+                "prune_future_horizon_tokens": 8,
+                "prune_future_retained_fraction": 1.0,
+                "prune_future_no_cut": True,
+                "prune_future_persistent_bad": False,
+                "prune_future_evaluated_blocks": 2,
+                "prune_future_bad_blocks": 1,
+                "prune_future_unavailable_blocks": 0,
+                "transition": "pre_wrong_post_wrong",
+            }
+        ],
+    ]
+    outcomes = [
+        {
+            "enabled": True,
+            "raw_correct": False,
+            "prune_future_calibration_threshold": 0.2,
+            "prune_future_calibration_source": "rolling_raw_correct_quantile",
+            "prune_future_calibration_count": 256,
+            "prune_future_calibration_version": 4,
+            "prune_future_healthy_update_count": 0,
+        },
+        {
+            "enabled": True,
+            "raw_correct": True,
+            "prune_future_calibration_threshold": 0.2,
+            "prune_future_calibration_source": "rolling_raw_correct_quantile",
+            "prune_future_calibration_count": 256,
+            "prune_future_calibration_version": 4,
+            "prune_future_healthy_update_count": 8,
+            "prune_future_healthy_available_blocks": 10,
+            "prune_future_healthy_unavailable_blocks": 1,
+        },
+    ]
+
+    metrics = compute_intervention_metrics(
+        intervention_counts=[1, 1],
+        interventions=interventions,
+        intervention_skipped=[[], []],
+        intervention_outcomes=outcomes,
+        response_mask=torch.ones((2, 16), dtype=torch.bool),
+    )
+
+    prefix = "opd_intervention/prune_future"
+    assert metrics[f"{prefix}/threshold/mean"] == pytest.approx(0.2)
+    assert metrics[f"{prefix}/calibration/current_batch_healthy_update_count"] == 8.0
+    assert metrics[f"{prefix}/horizon_tokens/mean"] == 6.0
+    assert metrics[f"{prefix}/horizon_tokens/p50"] == 6.0
+    assert metrics[f"{prefix}/suffix_retained_fraction/mean"] == 0.75
+    assert metrics[f"{prefix}/no_cut_fraction"] == 0.5
+    assert metrics[f"{prefix}/persistent_bad_fraction"] == 0.5
+    assert metrics[f"{prefix}/outcome/pre_wrong_post_correct/horizon_tokens_mean"] == 4.0
+    assert metrics[f"{prefix}/outcome/pre_wrong_post_wrong/retained_fraction_mean"] == 1.0
+
+
+def test_compute_intervention_metrics_aggregates_future_gap_proposals_on_cpu():
+    proposals = [
+        [
+            {
+                "accepted": True,
+                "future_gap_pair_available": True,
+                "future_gap_before": 0.5,
+                "future_gap_after": 0.1,
+                "future_gap_reduction": 0.4,
+                "future_gap_gate_cpu_seconds": 0.002,
+                "future_gap_confirmation_generated_tokens": 64,
+                "future_gap_continuation_generated_tokens": 128,
+                "future_gap_confirmation_terminal": False,
+                "future_gap_final_candidate_complete": True,
+                "candidate_response": "private text",
+                "_candidate_response_ids": [1, 2],
+            }
+        ],
+        [
+            {
+                "accepted": False,
+                "reason": "future_gap_after_threshold",
+                "future_gap_pair_available": True,
+                "future_gap_before": 0.4,
+                "future_gap_after": 0.6,
+                "future_gap_reduction": -0.2,
+                "future_gap_gate_cpu_seconds": 0.004,
+                "future_gap_confirmation_generated_tokens": 24,
+                "future_gap_continuation_generated_tokens": 0,
+                "future_gap_confirmation_terminal": True,
+                "future_gap_final_candidate_complete": True,
+            }
+        ],
+    ]
+    metrics = compute_intervention_metrics(
+        intervention_counts=[1, 0],
+        interventions=[[{"start": 1}], []],
+        intervention_proposals=proposals,
+        intervention_skipped=[[], [{"reason": "future_gap_after_threshold"}]],
+        response_mask=torch.ones((2, 4), dtype=torch.long),
+    )
+
+    assert metrics["opd_intervention/future_gap/proposal_rate"] == 1.0
+    assert metrics["opd_intervention/future_gap/acceptance_fraction_among_proposals"] == 0.5
+    assert metrics["opd_intervention/future_gap/measurable_fraction_among_proposals"] == 1.0
+    assert metrics["opd_intervention/future_gap/active_gap/reduction_mean_among_accepted"] == pytest.approx(0.4)
+    assert metrics["opd_intervention/future_gap/rejected_reason/future_gap_after_threshold"] == 1.0
+    assert metrics["opd_intervention/future_gap/confirmation_tokens_mean"] == 44.0
+    assert metrics["opd_intervention/future_gap/continuation_tokens_mean_among_accepted"] == 128.0
+    assert metrics["opd_intervention/future_gap/confirmation_terminal_fraction"] == 0.5
+    assert metrics["opd_intervention/future_gap/final_candidate_complete_fraction_among_accepted"] == 1.0
+
+    records = build_future_gap_proposal_records(proposals)
+    assert len(records) == 2
+    assert "candidate_response" not in records[0]
+    assert "_candidate_response_ids" not in records[0]
+
+
+def test_compute_intervention_metrics_aggregates_outcome_and_candidate_selection_on_cpu():
+    interventions = [
+        [
+            {
+                "start": 0,
+                "teacher_tokens": 2,
+                "student_suffix_tokens": 4,
+                "candidate_selection_enabled": True,
+                "candidate_count_requested": 4,
+                "candidate_rpc_max_concurrency_per_worker": 2,
+                "candidate_count_generated": 4,
+                "candidate_count_teacher_nll_valid": 4,
+                "candidate_count_threshold_eligible": 2,
+                "candidate_count_rankable": 2,
+                "candidate_unique_count": 3,
+                "candidate_duplicate_fraction": 0.25,
+                "teacher_nll_threshold": 0.5,
+                "teacher_nll_threshold_source": "rolling_healthy_quantile",
+                "teacher_nll_calibration_count_before": 32,
+                "teacher_nll_calibration_scope": "global",
+                "teacher_nll_calibration_version": 5,
+                "selected_teacher_nll": 0.2,
+                "selected_student_nll": 0.3,
+                "teacher_candidates": [
+                    {"index": 0, "invalid_reason": None},
+                    {"index": 1, "invalid_reason": "student_nll_scoring_failed:RuntimeError"},
+                ],
+            }
+        ],
+        [],
+    ]
+    skipped = [
+        [],
+        [
+            {
+                "reason": "teacher_candidates_above_nll_threshold",
+                "candidate_selection_enabled": True,
+                "candidate_count_requested": 4,
+                "candidate_rpc_max_concurrency_per_worker": 2,
+                "candidate_count_generated": 4,
+                "candidate_count_teacher_nll_valid": 4,
+                "candidate_count_threshold_eligible": 0,
+                "candidate_unique_count": 4,
+                "candidate_duplicate_fraction": 0.0,
+                "teacher_nll_threshold": 0.4,
+                "teacher_nll_threshold_source": "rolling_healthy_quantile",
+                "teacher_nll_calibration_count_before": 31,
+                "teacher_nll_calibration_scope": "global",
+                "teacher_nll_calibration_version": 4,
+                "teacher_candidates": [],
+            }
+        ],
+    ]
+    outcomes = [
+        {
+            "enabled": True,
+            "raw_correct": False,
+            "trigger_detected": True,
+            "repair_executed": True,
+            "repair_effective": True,
+            "repair_ineffective": False,
+        },
+        {
+            "enabled": True,
+            "raw_correct": False,
+            "trigger_detected": True,
+            "repair_executed": False,
+            "repair_effective": False,
+            "repair_ineffective": False,
+        },
+    ]
+
+    metrics = compute_intervention_metrics(
+        intervention_counts=[1, 0],
+        interventions=interventions,
+        intervention_skipped=skipped,
+        intervention_outcomes=outcomes,
+        response_mask=torch.ones((2, 8), dtype=torch.bool),
+    )
+
+    assert metrics["opd_intervention/outcome/sample_count"] == 2
+    assert metrics["opd_intervention/outcome/raw_wrong_count"] == 2
+    assert metrics["opd_intervention/outcome/repair_executed_count"] == 1
+    assert metrics["opd_intervention/outcome/repair_effective_count"] == 1
+    assert metrics["opd_intervention/outcome/repair_effective_fraction"] == 1.0
+    assert metrics["opd_intervention/outcome/repair_coverage_of_raw_wrong"] == 0.5
+    assert "opd_intervention/outcome/net_accuracy_delta_all_samples" not in metrics
+    assert metrics["opd_intervention/candidates/set_count"] == 2
+    assert metrics["opd_intervention/candidates/rpc_max_concurrency_per_worker"] == 2
+    assert metrics["opd_intervention/candidates/requested_count"] == 8
+    assert metrics["opd_intervention/candidates/threshold_eligible_count"] == 2
+    assert metrics["opd_intervention/candidates/teacher_nll_threshold_mean"] == pytest.approx(0.45)
+    assert metrics["opd_intervention/candidates/calibration_version_max"] == 5
+    assert metrics["opd_intervention/candidates/global_calibration_fraction"] == 1.0
+    assert metrics["opd_intervention/candidates/invalid_count"] == 1
+
+
+def test_compute_intervention_metrics_reports_complete_correctness_transition_table_on_cpu():
+    transitions = [
+        (True, True),
+        (True, False),
+        (False, True),
+        (False, True),
+        (False, False),
+    ]
+    outcomes = [
+        {
+            "enabled": True,
+            "transition_observation_event": True,
+            "raw_correct": raw_correct,
+            "final_correct": final_correct,
+            "trigger_detected": True,
+            "repair_executed": True,
+            "transition": (
+                f"pre_{'correct' if raw_correct else 'wrong'}_post_{'correct' if final_correct else 'wrong'}"
+            ),
+        }
+        for raw_correct, final_correct in transitions
+    ]
+    outcomes.append(
+        {
+            "enabled": True,
+            "transition_observation_event": True,
+            "raw_correct": True,
+            "final_correct": True,
+            "trigger_detected": False,
+            "repair_executed": False,
+            "transition": "not_repaired",
+        }
+    )
+
+    metrics = compute_intervention_metrics(
+        intervention_counts=[1, 1, 1, 1, 1, 0],
+        interventions=[[], [], [], [], [], []],
+        intervention_skipped=[[], [], [], [], [], []],
+        intervention_outcomes=outcomes,
+        response_mask=torch.ones((6, 4), dtype=torch.bool),
+    )
+
+    prefix = "opd_intervention/outcome"
+    assert metrics[f"{prefix}/pre_correct_post_correct_count"] == 1
+    assert metrics[f"{prefix}/pre_correct_post_wrong_count"] == 1
+    assert metrics[f"{prefix}/pre_wrong_post_correct_count"] == 2
+    assert metrics[f"{prefix}/pre_wrong_post_wrong_count"] == 1
+    fractions = [
+        metrics[f"{prefix}/{transition}_fraction_among_repaired"]
+        for transition in (
+            "pre_correct_post_correct",
+            "pre_correct_post_wrong",
+            "pre_wrong_post_correct",
+            "pre_wrong_post_wrong",
+        )
+    ]
+    assert fractions == pytest.approx([0.2, 0.2, 0.4, 0.2])
+    assert sum(fractions) == pytest.approx(1.0)
+    assert metrics[f"{prefix}/net_accuracy_delta_all_samples"] == pytest.approx(1 / 6)
+
+
+def test_compute_intervention_metrics_emits_zero_transition_fractions_without_repairs_on_cpu():
+    metrics = compute_intervention_metrics(
+        intervention_counts=[0, 0],
+        interventions=[[], []],
+        intervention_skipped=[[], []],
+        intervention_outcomes=[
+            {
+                "enabled": True,
+                "transition_observation_event": True,
+                "raw_correct": True,
+                "repair_executed": False,
+                "repair_effective": False,
+                "repair_ineffective": False,
+                "transition": "not_repaired",
+            },
+            {
+                "enabled": True,
+                "transition_observation_event": True,
+                "raw_correct": False,
+                "final_correct": False,
+                "repair_executed": False,
+                "transition": "not_repaired",
+            },
+        ],
+        response_mask=torch.ones((2, 4), dtype=torch.bool),
+    )
+
+    prefix = "opd_intervention/outcome"
+    assert metrics[f"{prefix}/repair_executed_count"] == 0
+    assert metrics[f"{prefix}/final_correct_fraction"] == 0.5
+    assert metrics[f"{prefix}/net_accuracy_delta_all_samples"] == 0
+    for transition in (
+        "pre_correct_post_correct",
+        "pre_correct_post_wrong",
+        "pre_wrong_post_correct",
+        "pre_wrong_post_wrong",
+    ):
+        assert metrics[f"{prefix}/{transition}_fraction_among_repaired"] == 0
+
+
+def test_compute_intervention_metrics_aggregates_paired_local_effect_on_cpu():
+    interventions = [
+        [
+            {
+                "start": 4,
+                "score": 2.0,
+                "teacher_tokens": 2,
+                "student_suffix_tokens": 8,
+                "local_effect_pair_available": True,
+                "local_effect_no_current_intervention_gap": 3.0,
+                "local_effect_after_intervention_gap": 1.0,
+                "local_effect_gap_reduction": 2.0,
+                "local_effect_no_current_intervention_d": 2.5,
+                "local_effect_after_intervention_d": 1.5,
+                "local_effect_d_reduction": 1.0,
+                "local_effect_no_current_intervention_tokens": 4,
+                "local_effect_after_intervention_tokens": 3,
+            },
+            {
+                "start": 12,
+                "score": 2.5,
+                "teacher_tokens": 2,
+                "student_suffix_tokens": 0,
+                "local_effect_pair_available": False,
+                "local_effect_no_current_intervention_gap": 2.0,
+                "local_effect_no_current_intervention_d": 1.0,
+                "local_effect_no_current_intervention_tokens": 2,
+                "local_effect_after_intervention_tokens": 0,
+                "local_effect_unavailable_reason": "terminal_response",
+            },
+        ]
+    ]
+
+    metrics = compute_intervention_metrics(
+        intervention_counts=[2],
+        interventions=interventions,
+        intervention_skipped=[[]],
+        response_mask=torch.ones((1, 16), dtype=torch.bool),
+    )
+
+    assert metrics["opd_intervention/local_effect/pair_count"] == 1.0
+    assert metrics["opd_intervention/local_effect/pair_fraction"] == 0.5
+    assert metrics["opd_intervention/local_effect/gap/no_current_intervention_mean"] == 3.0
+    assert metrics["opd_intervention/local_effect/gap/after_intervention_mean"] == 1.0
+    assert metrics["opd_intervention/local_effect/gap/reduction_mean"] == 2.0
+    assert metrics["opd_intervention/local_effect/gap/improved_fraction"] == 1.0
+    assert metrics["opd_intervention/local_effect/teacher_rejection/reduction_mean"] == 1.0
+    assert metrics["opd_intervention/local_effect/teacher_rejection/improved_fraction"] == 1.0
+    assert metrics["opd_intervention/local_effect/no_current_intervention_tokens_mean"] == 4.0
+    assert metrics["opd_intervention/local_effect/after_intervention_tokens_mean"] == 3.0
+    assert metrics["opd_intervention/local_effect/unavailable_reason/terminal_response"] == 1.0
+
+
+def test_intervention_boundary_v2_pairs_short_terminal_student_suffix_on_cpu():
+    response_ids = torch.tensor([[10, 11, 20, 21, 30, 31, 99, 0, 0, 0]])
+    response_mask = torch.tensor([[1, 1, 0, 0, 1, 1, 1, 0, 0, 0]], dtype=torch.bool)
+    student_logprobs = torch.full((1, 10), -2.0)
+    teacher_logprobs = torch.full((1, 10), -1.0)
+    teacher_logprobs[0, 2] = -0.2
+    teacher_logprobs[0, 3] = -0.4
+    entropy = torch.full((1, 10), 0.75)
+    student_topk_ids = torch.zeros((1, 10, 2), dtype=torch.long)
+    student_topk_ids[0, 2] = torch.tensor([20, 99])
+    student_topk_ids[0, 3] = torch.tensor([98, 99])
+    intervention = {
+        "attempt": 0,
+        "start": 2,
+        "end": 4,
+        "score": 3.0,
+        "gap_metric": "k3",
+        "gap_threshold": 0.15,
+        "gap_aggregation": "mean",
+        "teacher_tokens": 2,
+        "student_suffix_tokens": 3,
+        "teacher_terminal": False,
+        "boundary_final_span_available": True,
+        "selected_teacher_nll": 0.3,
+        "selected_student_nll": 0.5,
+        "_local_effect_v2_baseline_active_scores": [5.0, 4.0, 3.0, 2.0],
+        "_local_effect_v2_baseline_teacher_rejection_scores": [2.0, 2.0, 2.0, 2.0],
+        "_local_effect_v2_baseline_student_nll": [3.0, 3.0, 3.0, 3.0],
+        "_local_effect_v2_baseline_teacher_nll": [1.0, 1.0, 1.0, 1.0],
+    }
+
+    metrics, records = compute_intervention_boundary_diagnostics(
+        global_step=7,
+        interventions=[[intervention]],
+        response_ids=response_ids,
+        response_mask=response_mask,
+        student_logprobs=student_logprobs,
+        teacher_logprobs=teacher_logprobs,
+        entropy=entropy,
+        student_topk_ids=student_topk_ids,
+        teacher_logprob_nonfinite_positions=[[3, 5]],
+        intervention_outcomes=[
+            {
+                "raw_correct": False,
+                "final_correct": True,
+                "raw_reward_score": 0.0,
+                "final_reward_score": 1.0,
+                "transition": "pre_wrong_post_correct",
+            }
+        ],
+        boundary_text_cases=[
+            [
+                {
+                    "attempt": 0,
+                    "start": 2,
+                    "case_rank": 0.1,
+                    "prefix_tail": "prefix",
+                    "teacher_segment_head": "repair",
+                }
+            ]
+        ],
+        sample_uids=["uid-0"],
+        data_sources=["math"],
+        gap_metric="k3",
+    )
+
+    assert len(records) == 1
+    record = records[0]
+    assert record["uid"] == "uid-0"
+    assert record["entry"]["windows"]["16"]["teacher_self_nll"] == pytest.approx(0.2)
+    assert record["entry"]["windows"]["16"]["student_nll_on_teacher"] == pytest.approx(2.0)
+    assert record["entry"]["windows"]["16"]["student_topk_support_fraction"] == pytest.approx(0.5)
+    assert record["entry"]["selected_teacher_nll"] == pytest.approx(0.3)
+    assert record["entry"]["selected_student_nll"] == pytest.approx(0.5)
+    assert record["local_effect_v2"]["active_gap"]["16"]["effective_tokens"] == 2
+    assert record["completeness"]["short_student_suffix"] is True
+    assert record["outcome"]["attribution_scope"] == "sample_after_all_repairs"
+    assert record["outcome"]["attributable_to_this_intervention"] is False
+    assert record["text_context"]["prefix_tail"] == "prefix"
+    assert "_local_effect_v2" not in str(record)
+    assert metrics["opd_intervention/local_effect_v2/pair_fraction_first16"] == 1.0
+    assert metrics["opd_intervention/local_effect_v2/active_gap/worsened_fraction_first16"] == 0.0
+    assert metrics["opd_intervention/repair_boundary/entry/teacher_self_nll_first16_mean"] == pytest.approx(0.2)
+
+
+def test_intervention_boundary_v2_marks_teacher_terminal_without_suffix_unavailable_on_cpu():
+    metrics, records = compute_intervention_boundary_diagnostics(
+        global_step=3,
+        interventions=[
+            [
+                {
+                    "attempt": 0,
+                    "start": 1,
+                    "end": 2,
+                    "teacher_tokens": 2,
+                    "student_suffix_tokens": 0,
+                    "teacher_terminal": True,
+                    "boundary_final_span_available": True,
+                    "_local_effect_v2_baseline_active_scores": [2.0, 1.0],
+                    "_local_effect_v2_baseline_teacher_rejection_scores": [1.0, 1.0],
+                }
+            ]
+        ],
+        response_ids=torch.tensor([[10, 20, 21, 0, 0]]),
+        response_mask=torch.tensor([[1, 0, 0, 0, 0]], dtype=torch.bool),
+        student_logprobs=torch.full((1, 5), -2.0),
+        teacher_logprobs=torch.full((1, 5), -1.0),
+        entropy=None,
+        student_topk_ids=None,
+        teacher_logprob_nonfinite_positions=[[]],
+        gap_metric="k3",
+    )
+
+    assert metrics["opd_intervention/local_effect_v2/pair_fraction_first16"] == 0.0
+    assert "teacher_terminal_no_student_suffix" in records[0]["completeness"]["unavailable_reasons"]
+    assert records[0]["exit"]["windows"]["16"]["effective_student_tokens"] == 0
+
+
+def test_intervention_boundary_v2_censors_each_exit_at_the_next_teacher_repair_on_cpu():
+    response_ids = torch.arange(14).unsqueeze(0)
+    response_mask = torch.tensor([[1] * 13 + [0]], dtype=torch.bool)
+    base = {
+        "teacher_tokens": 2,
+        "teacher_terminal": False,
+        "boundary_final_span_available": True,
+        "_local_effect_v2_baseline_active_scores": [3.0] * 16,
+        "_local_effect_v2_baseline_teacher_rejection_scores": [2.0] * 16,
+    }
+    interventions = [
+        [
+            {**base, "attempt": 0, "start": 2, "end": 4, "student_suffix_tokens": 9},
+            {**base, "attempt": 1, "start": 8, "end": 10, "student_suffix_tokens": 3},
+        ]
+    ]
+
+    metrics, records = compute_intervention_boundary_diagnostics(
+        global_step=4,
+        interventions=interventions,
+        response_ids=response_ids,
+        response_mask=response_mask,
+        student_logprobs=torch.full((1, 14), -2.0),
+        teacher_logprobs=torch.full((1, 14), -1.0),
+        entropy=torch.ones((1, 14)),
+        student_topk_ids=None,
+        teacher_logprob_nonfinite_positions=[[]],
+        gap_metric="teacher_rejection",
+    )
+
+    assert len(records) == 2
+    assert records[0]["exit"]["censored_by_next_intervention"] is True
+    assert records[0]["exit"]["windows"]["8"]["effective_student_tokens"] == 4
+    assert records[1]["exit"]["windows"]["8"]["effective_student_tokens"] == 3
+    assert records[0]["local_effect_v2"]["active_gap"]["8"]["effective_tokens"] == 4
+    assert records[1]["local_effect_v2"]["active_gap"]["8"]["effective_tokens"] == 3
+    assert metrics["opd_intervention/local_effect_v2/pair_fraction_first8"] == 1.0
+
+
+def test_intervention_boundary_v2_reuses_existing_distribution_scores_on_cpu():
+    intervention = {
+        "attempt": 0,
+        "start": 1,
+        "end": 2,
+        "teacher_tokens": 1,
+        "student_suffix_tokens": 3,
+        "boundary_final_span_available": True,
+        "_local_effect_v2_baseline_active_scores": [4.0, 3.0, 2.0],
+        "_local_effect_v2_baseline_teacher_rejection_scores": [2.0, 2.0, 2.0],
+        "_local_effect_v2_scored_after_active_scores": [1.0, 1.5, 2.0],
+        "_local_effect_v2_scored_after_offsets": [0, 1, 2],
+    }
+    metrics, records = compute_intervention_boundary_diagnostics(
+        global_step=5,
+        interventions=[[intervention]],
+        response_ids=torch.tensor([[10, 20, 30, 31, 32]]),
+        response_mask=torch.tensor([[1, 0, 1, 1, 1]], dtype=torch.bool),
+        student_logprobs=torch.full((1, 5), -2.0),
+        teacher_logprobs=torch.full((1, 5), -1.0),
+        entropy=torch.ones((1, 5)),
+        student_topk_ids=None,
+        teacher_logprob_nonfinite_positions=[[]],
+        gap_metric="topk_kl",
+    )
+
+    assert metrics["opd_intervention/local_effect_v2/pair_fraction_first8"] == 1.0
+    assert records[0]["local_effect_v2"]["active_gap"]["8"]["before"] == 3.0
+    assert records[0]["local_effect_v2"]["active_gap"]["8"]["after"] == 1.5

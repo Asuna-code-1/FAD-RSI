@@ -1,0 +1,133 @@
+{
+  "upstream_commit": "10db7986937784dffee5597cae7778770f81c471",
+  "upstream_override_count": 180,
+  "unexplained_differences": [],
+  "documented_differences": {
+    "data.train_files": {
+      "upstream": [
+        "/data/fd/donghaosen/ati-opd/datasets/open-r1/DAPO-Math-17k-Processed-verl--qwen3/train.parquet"
+      ],
+      "effective": [
+        "/data/fd/donghaosen/ati-opd/data/prepared/dapo/train.parquet"
+      ]
+    },
+    "data.val_files": {
+      "upstream": [
+        "/data/fd/donghaosen/ati-opd/datasets/open-r1/DAPO-Math-17k-Processed-verl--qwen3/test.parquet"
+      ],
+      "effective": [
+        "/data/fd/donghaosen/ati-opd/data/prepared/dapo/test.parquet"
+      ]
+    },
+    "data.test_benchmarks.root": {
+      "upstream": "/data/fd/donghaosen/ati-opd/datasets",
+      "effective": "/data/fd/donghaosen/ati-opd/data/eval"
+    },
+    "data.test_benchmarks.names": {
+      "upstream": [
+        "math-ai/aime24",
+        "math-ai/aime25",
+        "math-ai/amc23",
+        "meituan-longcat/AMO-Bench"
+      ],
+      "effective": [
+        "math-ai/aime24",
+        "math-ai/aime25",
+        "math-ai/amc23",
+        "meituan-longcat/AMO-Bench",
+        "MathArena/hmmt_feb_2026"
+      ]
+    },
+    "actor_rollout_ref.model.path": {
+      "upstream": "/data/fd/donghaosen/ati-opd/models/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+      "effective": "/data/fd/donghaosen/opd-shared/models/nvidia/OpenMath-Nemotron-1.5B"
+    },
+    "actor_rollout_ref.model.chat_template_from_model": {
+      "upstream": "/data/fd/donghaosen/ati-opd/models/hbx/JustRL-DeepSeek-1.5B",
+      "effective": "/data/fd/donghaosen/opd-shared/models/hbx/JustRL-Nemotron-1.5B"
+    },
+    "actor_rollout_ref.actor.ppo_max_token_len_per_gpu": {
+      "upstream": 6272,
+      "effective": 24704
+    },
+    "actor_rollout_ref.actor.ulysses_sequence_parallel_size": {
+      "upstream": 4,
+      "effective": 1
+    },
+    "actor_rollout_ref.rollout.tensor_model_parallel_size": {
+      "upstream": 2,
+      "effective": 1
+    },
+    "actor_rollout_ref.rollout.gpu_memory_utilization": {
+      "upstream": 0.6,
+      "effective": 0.55
+    },
+    "actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu": {
+      "upstream": 6272,
+      "effective": 24704
+    },
+    "trainer.logger": {
+      "upstream": [
+        "console",
+        "wandb"
+      ],
+      "effective": [
+        "console",
+        "swanlab"
+      ]
+    },
+    "trainer.metric_logging.archive.local_dir": {
+      "upstream": null,
+      "effective": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_aligned_20261119T204014Z/nemotron15-ati/metric_archive"
+    },
+    "trainer.metric_logging.archive.upload_to_wandb": {
+      "upstream": "auto",
+      "effective": "disabled"
+    },
+    "trainer.project_name": {
+      "upstream": "DMPD",
+      "effective": "ati-opd"
+    },
+    "trainer.experiment_name": {
+      "upstream": "dmpd--train_on_teacher--loss_opd--prune_future-20261118-215831",
+      "effective": "nemotron15-ati-aligned-step0-20261119T204014Z"
+    },
+    "trainer.n_gpus_per_node": {
+      "upstream": 8,
+      "effective": 2
+    },
+    "trainer.device": {
+      "upstream": "npu",
+      "effective": "cuda"
+    },
+    "trainer.default_local_dir": {
+      "upstream": "/workspace/fudan/donghaosen/ATI-OPD/outputs/dmpd--train_on_teacher--loss_opd--prune_future-20261118-215831",
+      "effective": "/data/fd/donghaosen/ati-opd/runs/paper4gpu_aligned_20261119T204014Z/nemotron15-ati/checkpoints"
+    },
+    "trainer.test_before_train": {
+      "upstream": false,
+      "effective": true
+    },
+    "distillation.n_gpus_per_node": {
+      "upstream": 8,
+      "effective": 2
+    },
+    "distillation.teacher_models.teacher_model.model_path": {
+      "upstream": "/data/fd/donghaosen/ati-opd/models/hbx/JustRL-DeepSeek-1.5B",
+      "effective": "/data/fd/donghaosen/opd-shared/models/hbx/JustRL-Nemotron-1.5B"
+    },
+    "distillation.teacher_models.teacher_model.num_replicas": {
+      "upstream": 4,
+      "effective": 2
+    },
+    "distillation.teacher_models.teacher_model.inference.tensor_model_parallel_size": {
+      "upstream": 2,
+      "effective": 1
+    }
+  },
+  "exception_reasons": {
+    "paths": "Verified local datasets and weights",
+    "hardware": "Four H200 GPUs, 2 student + 2 teacher, CUDA/FSDP2 and compatible Ray runtime",
+    "user_settings": "SwanLab only, fresh run, step-0 evaluation, five paper benchmarks, retain artifacts"
+  }
+}

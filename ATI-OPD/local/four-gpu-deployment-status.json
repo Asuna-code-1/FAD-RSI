@@ -1,0 +1,32 @@
+{
+  "updated_at": "2026-11-19T20:50:31.612270+00:00",
+  "campaign_manifest": "/workspace/fudan/donghaosen/ATI-OPD/local/runs/paper4gpu_recovery_20261119T203843Z/manifest.json",
+  "state": "checkpoint120_loaded",
+  "logger": "swanlab",
+  "wandb_enabled": false,
+  "hardware": "GPU 0-3 only, 2 student + 2 teacher",
+  "target_mib_per_gpu": 122880,
+  "stop_mib_per_gpu": 138240,
+  "poll_seconds": 0.5,
+  "shuffle": false,
+  "test_before_train": false,
+  "resume_mode": "resume_path",
+  "validation": "Four Hydra configurations passed; 20 CPU tests passed; full-size CUDA kernel peak 62.93 -> 14.86 GiB",
+  "memory_fix": "Bounded FP32 selected-logprob forward/backward and topk diagnostic normalization; student vLLM fraction 0.55",
+  "average_metric": "test-legacy-core/Average",
+  "note": "User explicitly chose checkpoint120 resume; full training memory peak pending measurement.",
+  "resume_step": 120,
+  "next_step": 121,
+  "original_step0_preserved": true,
+  "swanlab_version": "0.10.3",
+  "swanlab_runtime": "local/runtime-swanlab0103",
+  "swanlab_run_url": "https://swanlab.cn/@Dhs2004/ati-opd/runs/vdlz4weh",
+  "measured_peak_gib": [
+    79.68,
+    79.68,
+    85.26,
+    85.26
+  ],
+  "checkpoint_load_verified": true,
+  "first_resumed_step_completed": false
+}

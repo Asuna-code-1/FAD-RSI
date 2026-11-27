@@ -1,0 +1,25 @@
+# Source this file; it starts no services and runs no training.
+export OPD_PROJECT_ROOT=/workspace/fudan/donghaosen/ATI-OPD
+export PYTHONPATH=/workspace/fudan/donghaosen/ATI-OPD/local/runtime-ray250:/workspace/fudan/donghaosen/ATI-OPD${PYTHONPATH:+:$PYTHONPATH}
+export HF_HOME=/data/fd/donghaosen/ati-opd/cache/huggingface
+export HF_DATASETS_CACHE=/data/fd/donghaosen/ati-opd/cache/datasets
+export XDG_CACHE_HOME=/data/fd/donghaosen/ati-opd/cache
+export UV_CACHE_DIR=/data/fd/donghaosen/opd-shared/cache/uv
+export PIP_CACHE_DIR=/data/fd/donghaosen/opd-shared/cache/pip
+export TMPDIR=/data/fd/donghaosen/ati-opd/tmp
+export TORCH_HOME=/data/fd/donghaosen/ati-opd/cache/torch
+export TRITON_CACHE_DIR=/data/fd/donghaosen/ati-opd/cache/triton
+export TORCHINDUCTOR_CACHE_DIR=/data/fd/donghaosen/ati-opd/cache/torchinductor
+export WANDB_MODE=disabled
+unset WANDB_API_KEY
+export SWANLAB_MODE=cloud
+export SWANLAB_LOG_DIR=/data/fd/donghaosen/ati-opd/swanlab
+export SWANLAB_ROOT=/workspace/fudan/donghaosen/.credentials/swanlab-ati-opd
+export SWANLAB_SAVE_DIR=/workspace/fudan/donghaosen/.credentials/swanlab-ati-opd
+export SWANLAB_CONFIG_DIR=/workspace/fudan/donghaosen/.credentials/swanlab-ati-opd
+export RAY_TMPDIR=/data/fd/donghaosen/ati-opd/tmp/ray
+export RAY_USAGE_STATS_ENABLED=0
+export TOKENIZERS_PARALLELISM=false
+export HF_HUB_DISABLE_XET=1
+export LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH:-}
+source /workspace/fudan/donghaosen/ATI-OPD/.venv/bin/activate
